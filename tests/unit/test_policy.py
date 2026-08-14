@@ -1,4 +1,4 @@
-from app.application.policy import RETRY_QUEUE_DELAYS, webhook_backoff
+from app.application.policy import CLAIM_LEASE, RETRY_QUEUE_DELAYS, webhook_backoff
 
 
 def test_webhook_backoff_grows_exponentially() -> None:
@@ -15,3 +15,8 @@ def test_retry_queue_delays_do_not_coincide_with_webhook_backoff() -> None:
     webhook_delays = [webhook_backoff(attempt) for attempt in (1, 2)]
 
     assert list(RETRY_QUEUE_DELAYS) != webhook_delays
+
+
+def test_claim_lease_expires_before_the_retries_run_out() -> None:
+    """Иначе платёж, чей обработчик умер, не захватить ни на одном повторе."""
+    assert CLAIM_LEASE.total_seconds() < sum(RETRY_QUEUE_DELAYS)
