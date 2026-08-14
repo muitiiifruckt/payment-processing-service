@@ -33,3 +33,12 @@ def test_marking_succeeded_sets_status_and_processed_at() -> None:
 
     assert payment.status is PaymentStatus.SUCCEEDED
     assert payment.processed_at == PROCESSED_AT
+
+
+def test_marking_failed_sets_status_and_processed_at() -> None:
+    payment = pending_payment()
+
+    payment.mark_failed(now=PROCESSED_AT)
+
+    assert payment.status is PaymentStatus.FAILED
+    assert payment.processed_at == PROCESSED_AT
