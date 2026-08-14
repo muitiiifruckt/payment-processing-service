@@ -1,0 +1,34 @@
+name: push
+
+# Первый уровень (§8 CLAUDE.md): всё, что не требует ни БД, ни брокера.
+# Цель — секунды, чтобы обратная связь приходила в цикле red → green.
+on: push
+
+concurrency:
+  group: push-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      # domain и application проверяются строго — режим задан в pyproject
+      - name: mypy
+        run: uv run mypy app
+
+      - name: unit tests
+        run: uv run pytest -m "not integration and not e2e"

@@ -1,0 +1,79 @@
+name: pull request
+
+# Второй уровень (§8 CLAUDE.md): интеграционные тесты против настоящих
+# Postgres и RabbitMQ плюс проверка миграций.
+on: pull_request
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: payments
+          POSTGRES_PASSWORD: payments
+          POSTGRES_DB: payments
+        ports: ["5432:5432"]
+        # без -U и -d проба даёт ложную готовность: во время инициализации
+        # кластер поднимает временный экземпляр на unix-сокете
+        options: >-
+          --health-cmd "pg_isready -U payments -d payments"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      rabbitmq:
+        image: rabbitmq:4-management-alpine
+        ports: ["5672:5672"]
+        # ping проверяет живость узла, а не готовность принимать AMQP
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
+          --health-start-period 40s
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://payments:payments@localhost:5432/payments
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      # Ловит невалидный downgrade и разъезд моделей с миграциями.
+      # Шаг включится сам, когда появится alembic (слайс 2).
+      - name: migrations round-trip
+        run: |
+          if [ ! -f alembic.ini ]; then
+            echo "миграций пока нет — слайс 2"
+            exit 0
+          fi
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: integration tests
+        run: |
+          set +e
+          uv run pytest -m integration
+          code=$?
+          set -e
+          # 5 — pytest не собрал ни одного теста: интеграционные появятся в слайсе 2
+          if [ $code -eq 5 ]; then
+            echo "интеграционных тестов пока нет"
+            exit 0
+          fi
+          exit $code
