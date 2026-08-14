@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from app.domain.errors import InvalidTransition
+from app.domain.errors import InvalidTransitionError
 from app.domain.money import Money
 from app.domain.status import PaymentStatus
 
@@ -27,7 +27,7 @@ class Payment:
 
     def _settle(self, status: PaymentStatus, now: datetime) -> None:
         if self.status in TERMINAL_STATUSES:
-            raise InvalidTransition(
+            raise InvalidTransitionError(
                 f"платёж {self.payment_id} уже в терминальном статусе {self.status}"
             )
         self.status = status

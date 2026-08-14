@@ -4,7 +4,7 @@ from uuid import UUID
 
 import pytest
 
-from app.domain.errors import InvalidTransition
+from app.domain.errors import InvalidTransitionError
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
@@ -51,7 +51,7 @@ def test_transition_from_terminal_status_is_rejected() -> None:
     payment = pending_payment()
     payment.mark_succeeded(now=PROCESSED_AT)
 
-    with pytest.raises(InvalidTransition):
+    with pytest.raises(InvalidTransitionError):
         payment.mark_failed(now=PROCESSED_AT)
 
 
@@ -59,5 +59,5 @@ def test_repeating_the_same_terminal_transition_is_rejected() -> None:
     payment = pending_payment()
     payment.mark_succeeded(now=PROCESSED_AT)
 
-    with pytest.raises(InvalidTransition):
+    with pytest.raises(InvalidTransitionError):
         payment.mark_succeeded(now=PROCESSED_AT)

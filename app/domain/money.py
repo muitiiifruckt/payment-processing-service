@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
-from app.domain.errors import InvalidAmount
+from app.domain.errors import InvalidAmountError
 
 
 class Currency(StrEnum):
@@ -18,4 +18,4 @@ class Money:
 
     def __post_init__(self) -> None:
         if self.amount <= 0:
-            raise InvalidAmount(f"сумма должна быть положительной, получено {self.amount}")
+            raise InvalidAmountError(f"сумма должна быть положительной, получено {self.amount}")

@@ -17,4 +17,4 @@ WEBHOOK_BASE_DELAY = 1.0
 
 def webhook_backoff(attempt: int) -> float:
     """Задержка перед попыткой `attempt + 1` доставки webhook, секунды (RFC §6.2)."""
-    return WEBHOOK_BASE_DELAY * 2 ** (attempt - 1)
+    return float(WEBHOOK_BASE_DELAY * 2 ** (attempt - 1))
