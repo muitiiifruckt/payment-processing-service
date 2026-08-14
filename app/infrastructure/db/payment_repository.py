@@ -76,6 +76,21 @@ class PaymentRepository:
         )
         return await self._session.scalar(statement) is not None
 
+    async def save_result(self, payment: Payment) -> None:
+        """Записать исход обработки. Разрешено только из pending."""
+        await self._session.execute(
+            update(PaymentRow)
+            .where(
+                PaymentRow.payment_id == payment.payment_id,
+                PaymentRow.status == PaymentStatus.PENDING.value,
+            )
+            .values(
+                status=payment.status.value,
+                processed_at=payment.processed_at,
+                locked_at=None,
+            )
+        )
+
     async def release(self, payment_id: UUID) -> None:
         """Снять захват — обработчик закончил, удачно или нет."""
         await self._session.execute(
