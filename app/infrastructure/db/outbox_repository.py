@@ -27,7 +27,6 @@ class OutboxRepository:
                 event_type=event_type,
                 payload=payload,
                 created_at=now,
-                # первая попытка публикации доступна сразу
                 next_attempt_at=now,
             )
         )
