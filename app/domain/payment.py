@@ -14,6 +14,10 @@ class Payment:
     payment_id: UUID
     amount: Money
     created_at: datetime
+    #: Задание перечисляет ключ идемпотентности среди полей платежа
+    idempotency_key: str
+    #: Хеш канонической формы запроса: при повторе ключа сравнивать иначе не с чем
+    request_hash: str
     status: PaymentStatus = PaymentStatus.PENDING
     processed_at: datetime | None = None
 

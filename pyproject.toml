@@ -41,6 +41,8 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# контейнер и движок живут на всю сессию, значит и цикл событий тоже
+asyncio_default_fixture_loop_scope = "session"
 markers = [
     "integration: требует реальных Postgres / RabbitMQ / HTTP",
     "e2e: требует поднятого окружения целиком",
