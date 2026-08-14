@@ -30,3 +30,45 @@ async def test_claiming_a_pending_payment_succeeds(session: AsyncSession) -> Non
     repository = PaymentRepository(session)
 
     assert await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+
+async def test_second_claim_within_the_lease_is_refused(session: AsyncSession) -> None:
+    payment_id = UUID("0192f3a4-0000-7000-8000-000000000031")
+    await stored_payment(session, payment_id, "key-claim-2")
+    repository = PaymentRepository(session)
+
+    await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+    assert not await repository.claim(payment_id, now=NOW + LEASE, lease=LEASE)
+
+
+async def test_claim_succeeds_again_once_the_lease_expired(session: AsyncSession) -> None:
+    payment_id = UUID("0192f3a4-0000-7000-8000-000000000032")
+    await stored_payment(session, payment_id, "key-claim-3")
+    repository = PaymentRepository(session)
+
+    await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+    assert await repository.claim(payment_id, now=NOW + LEASE + timedelta(seconds=1), lease=LEASE)
+
+
+async def test_released_claim_is_available_immediately(session: AsyncSession) -> None:
+    payment_id = UUID("0192f3a4-0000-7000-8000-000000000033")
+    await stored_payment(session, payment_id, "key-claim-4")
+    repository = PaymentRepository(session)
+
+    await repository.claim(payment_id, now=NOW, lease=LEASE)
+    await repository.release(payment_id)
+
+    assert await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+
+async def test_terminal_payment_cannot_be_claimed(session: AsyncSession) -> None:
+    payment_id = UUID("0192f3a4-0000-7000-8000-000000000034")
+    payment = await stored_payment(session, payment_id, "key-claim-5")
+    repository = PaymentRepository(session)
+
+    payment.mark_succeeded(now=NOW)
+    await repository.save_result(payment)
+
+    assert not await repository.claim(payment_id, now=NOW, lease=LEASE)
