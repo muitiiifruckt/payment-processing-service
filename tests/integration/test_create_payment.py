@@ -5,7 +5,6 @@ from uuid import UUID
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.create_payment import create_payment
@@ -71,22 +70,25 @@ async def test_payment_and_event_are_written_atomically(
     assert (payments, events) == (0, 0)
 
 
-async def test_second_payment_with_the_same_key_is_rejected(session: AsyncSession) -> None:
-    await create_payment(session, a_payment(), event_id=EVENT_ID, now=NOW)
-    await session.flush()
+async def test_second_payment_with_the_same_key_is_not_created(session: AsyncSession) -> None:
+    first = await create_payment(session, a_payment(), event_id=EVENT_ID, now=NOW)
 
-    await create_payment(
+    second = await create_payment(
         session,
         a_payment(payment_id=OTHER_ID),
         event_id=OTHER_EVENT_ID,
         now=NOW,
     )
+    await session.flush()
 
-    with pytest.raises(IntegrityError):
-        await session.flush()
+    payments = await session.scalar(
+        select(func.count())
+        .select_from(PaymentRow)
+        .where(PaymentRow.idempotency_key == first.idempotency_key)
+    )
 
-    # после нарушения уникальности транзакция непригодна — работать в ней дальше нельзя
-    await session.rollback()
+    assert second.payment_id == first.payment_id
+    assert payments == 1
 
 
 async def test_concurrent_creates_with_the_same_key_yield_one_payment(

@@ -16,9 +16,20 @@ async def create_payment(
     *,
     event_id: UUID,
     now: datetime,
-) -> None:
-    """Платёж и событие пишутся одной транзакцией. В брокер отсюда не публикуем."""
-    await PaymentRepository(session).add(payment)
+) -> Payment:
+    """Платёж и событие пишутся одной транзакцией. В брокер отсюда не публикуем.
+
+    При занятом ключе идемпотентности возвращает существующий платёж
+    и не создаёт второго события.
+    """
+    payments = PaymentRepository(session)
+
+    if not await payments.add_if_absent(payment):
+        existing = await payments.get_by_idempotency_key(payment.idempotency_key)
+        if existing is None:
+            raise RuntimeError(f"ключ {payment.idempotency_key} занят, но платёж не найден")
+        return existing
+
     await OutboxRepository(session).add(
         event_id=event_id,
         aggregate_id=payment.payment_id,
@@ -26,3 +37,4 @@ async def create_payment(
         payload={"event_id": str(event_id), "payment_id": str(payment.payment_id)},
         now=now,
     )
+    return payment
