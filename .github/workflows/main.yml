@@ -1,0 +1,61 @@
+name: main
+
+# Третий уровень (§8 CLAUDE.md): сквозной прогон на поднятом окружении.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: main
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      # Шаг включится сам, когда появится compose (слайс 8)
+      - name: compose up
+        run: |
+          if [ ! -f docker-compose.yml ]; then
+            echo "окружения пока нет — слайс 8"
+            exit 0
+          fi
+          cp .env.example .env
+          docker compose up -d --build --wait
+
+      - name: smoke
+        run: |
+          if [ ! -f docker-compose.yml ]; then
+            exit 0
+          fi
+          set +e
+          uv run pytest -m e2e
+          code=$?
+          set -e
+          if [ $code -eq 5 ]; then
+            echo "сквозных тестов пока нет"
+            exit 0
+          fi
+          exit $code
+
+      - name: logs on failure
+        if: failure()
+        run: |
+          if [ -f docker-compose.yml ]; then
+            docker compose logs --no-color
+          fi
+
+      - name: compose down
+        if: always()
+        run: |
+          if [ -f docker-compose.yml ]; then
+            docker compose down -v
+          fi
