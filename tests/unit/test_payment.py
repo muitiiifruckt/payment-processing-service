@@ -53,3 +53,11 @@ def test_transition_from_terminal_status_is_rejected() -> None:
 
     with pytest.raises(InvalidTransition):
         payment.mark_failed(now=PROCESSED_AT)
+
+
+def test_repeating_the_same_terminal_transition_is_rejected() -> None:
+    payment = pending_payment()
+    payment.mark_succeeded(now=PROCESSED_AT)
+
+    with pytest.raises(InvalidTransition):
+        payment.mark_succeeded(now=PROCESSED_AT)
