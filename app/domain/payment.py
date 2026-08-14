@@ -11,5 +11,5 @@ class Payment:
     payment_id: UUID
     amount: Money
     created_at: datetime
-    status: PaymentStatus | None = None
+    status: PaymentStatus = PaymentStatus.PENDING
     processed_at: datetime | None = None
