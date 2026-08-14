@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,11 +56,31 @@ class PaymentRepository:
         return await self._session.scalar(statement) is not None
 
     async def claim(self, payment_id: UUID, *, now: datetime, lease: timedelta) -> bool:
-        """Взять платёж в работу. False, если он занят или уже терминален."""
-        return False
+        """Взять платёж в работу. False, если он занят или уже терминален.
+
+        Проверка и захват — одна операция: чтение с последующей записью
+        пропустило бы двух обработчиков к шлюзу одновременно.
+        """
+        statement = (
+            update(PaymentRow)
+            .where(
+                PaymentRow.payment_id == payment_id,
+                PaymentRow.status == PaymentStatus.PENDING.value,
+                or_(
+                    PaymentRow.locked_at.is_(None),
+                    PaymentRow.locked_at < now - lease,
+                ),
+            )
+            .values(locked_at=now, attempts=PaymentRow.attempts + 1)
+            .returning(PaymentRow.payment_id)
+        )
+        return await self._session.scalar(statement) is not None
 
     async def release(self, payment_id: UUID) -> None:
         """Снять захват — обработчик закончил, удачно или нет."""
+        await self._session.execute(
+            update(PaymentRow).where(PaymentRow.payment_id == payment_id).values(locked_at=None)
+        )
 
     async def get(self, payment_id: UUID) -> Payment | None:
         row = await self._session.scalar(
