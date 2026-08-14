@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
+from app.domain.errors import InvalidAmount
+
 
 class Currency(StrEnum):
     RUB = "RUB"
@@ -13,3 +15,7 @@ class Currency(StrEnum):
 class Money:
     amount: Decimal
     currency: Currency
+
+    def __post_init__(self) -> None:
+        if self.amount <= 0:
+            raise InvalidAmount(f"сумма должна быть положительной, получено {self.amount}")
