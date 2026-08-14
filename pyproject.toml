@@ -41,8 +41,11 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-# контейнер и движок живут на всю сессию, значит и цикл событий тоже
+# Контейнер и движок живут на всю сессию, значит и цикл событий тоже — иначе
+# соединение asyncpg, созданное на одном цикле, используется на другом.
+# Область у фикстур и у тестов обязана совпадать.
 asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 markers = [
     "integration: требует реальных Postgres / RabbitMQ / HTTP",
     "e2e: требует поднятого окружения целиком",
