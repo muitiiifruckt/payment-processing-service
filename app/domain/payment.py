@@ -13,3 +13,9 @@ class Payment:
     created_at: datetime
     status: PaymentStatus = PaymentStatus.PENDING
     processed_at: datetime | None = None
+
+    def mark_succeeded(self, now: datetime) -> None:
+        """Момент времени приходит снаружи: домен не знает про Clock."""
+
+    def mark_failed(self, now: datetime) -> None:
+        """Момент времени приходит снаружи: домен не знает про Clock."""
