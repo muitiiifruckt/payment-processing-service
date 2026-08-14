@@ -2,6 +2,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
+import pytest
+
+from app.domain.errors import InvalidTransition
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
@@ -42,3 +45,11 @@ def test_marking_failed_sets_status_and_processed_at() -> None:
 
     assert payment.status is PaymentStatus.FAILED
     assert payment.processed_at == PROCESSED_AT
+
+
+def test_transition_from_terminal_status_is_rejected() -> None:
+    payment = pending_payment()
+    payment.mark_succeeded(now=PROCESSED_AT)
+
+    with pytest.raises(InvalidTransition):
+        payment.mark_failed(now=PROCESSED_AT)
