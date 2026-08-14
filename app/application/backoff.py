@@ -11,6 +11,10 @@
 RETRY_QUEUE_DELAYS: tuple[int, ...] = ()
 
 
+#: Задержка перед второй попыткой доставки webhook, секунды.
+WEBHOOK_BASE_DELAY = 1.0
+
+
 def webhook_backoff(attempt: int) -> float:
     """Задержка перед попыткой `attempt + 1` доставки webhook, секунды (RFC §6.2)."""
-    return 0.0
+    return WEBHOOK_BASE_DELAY * 2 ** (attempt - 1)
