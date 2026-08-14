@@ -21,3 +21,5 @@ class Payment:
 
     def mark_failed(self, now: datetime) -> None:
         """Момент времени приходит снаружи: домен не знает про Clock."""
+        self.status = PaymentStatus.FAILED
+        self.processed_at = now
