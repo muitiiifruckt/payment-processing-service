@@ -1,0 +1,28 @@
+# Локальные материалы задания — не в репозиторий
+CLAUDE.md
+*.pdf
+
+# Окружение
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Редакторы
+.idea/
+.vscode/
+
+# Windows / OneDrive
+Thumbs.db
+desktop.ini
