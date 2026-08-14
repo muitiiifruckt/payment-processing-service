@@ -63,7 +63,9 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         maker = async_sessionmaker(bind=connection, expire_on_commit=False)
         async with maker() as session:
             yield session
-        await transaction.rollback()
+        # тест мог откатиться сам — например, после нарушения уникальности
+        if transaction.is_active:
+            await transaction.rollback()
 
 
 @pytest.fixture
