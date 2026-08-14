@@ -35,13 +35,6 @@ def _to_row(payment: Payment) -> PaymentRow:
 
 
 class PaymentRepository:
-    """Отображение между доменным платежом и строкой таблицы.
-
-    Домен и таблица — разные классы: ядро не должно знать про SQLAlchemy.
-    Цена — явное отображение здесь, зато `Payment` остаётся проверяемым
-    за миллисекунды и без БД.
-    """
-
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 

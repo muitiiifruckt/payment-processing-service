@@ -35,8 +35,6 @@ async def test_creating_a_payment_writes_exactly_one_outbox_event(
     await session.flush()
 
     events = await session.scalar(
-        select(func.count())
-        .select_from(OutboxRow)
-        .where(OutboxRow.aggregate_id == PAYMENT_ID)
+        select(func.count()).select_from(OutboxRow).where(OutboxRow.aggregate_id == PAYMENT_ID)
     )
     assert events == 1

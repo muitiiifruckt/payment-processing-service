@@ -1,13 +1,3 @@
-"""Общие фикстуры.
-
-Разделение по стоимости запуска задаётся каталогом: всё в tests/integration
-и tests/e2e помечается автоматически, чтобы не расставлять маркеры руками
-и не забыть их в новом файле.
-
-Для БД поднимается настоящий контейнер — один на сессию. Схема накатывается
-Alembic'ом, так что каждый прогон заодно проверяет миграции.
-"""
-
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -25,9 +15,8 @@ from sqlalchemy.ext.asyncio import (
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Маркер по каталогу, чтобы не забыть его в новом файле."""
     for item in items:
         path = str(item.path).replace("\\", "/")
         if "/tests/integration/" in path:
@@ -38,10 +27,7 @@ def pytest_collection_modifyitems(
 
 @pytest.fixture(scope="session")
 def database_url() -> Iterator[str]:
-    """Адрес готового экземпляра, если задан снаружи; иначе свой контейнер.
-
-    В CI адрес задан сервис-контейнером — те же тесты работают без изменений.
-    """
+    """Готовый экземпляр, если задан снаружи (CI), иначе свой контейнер."""
     external = os.getenv("TEST_DATABASE_URL")
     if external:
         yield external
@@ -71,11 +57,7 @@ async def engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    """Сессия внутри внешней транзакции, которая откатывается после теста.
-
-    Изоляция без пересоздания схемы. Тесты, которым нужен настоящий коммит —
-    в первую очередь проверка атомарности outbox, — берут session_factory.
-    """
+    """Внешняя транзакция с откатом после теста."""
     async with engine.connect() as connection:
         transaction = await connection.begin()
         maker = async_sessionmaker(bind=connection, expire_on_commit=False)
@@ -85,8 +67,6 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture
-async def session_factory(
-    engine: AsyncEngine,
-) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """Настоящие коммиты. Чистка — за самим тестом."""
-    yield async_sessionmaker(bind=engine, expire_on_commit=False)
+def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Настоящие коммиты — для проверки атомарности. Чистка за тестом."""
+    return async_sessionmaker(bind=engine, expire_on_commit=False)

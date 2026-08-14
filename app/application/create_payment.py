@@ -1,11 +1,3 @@
-"""Приём платежа.
-
-Транзакционная граница outbox: платёж и событие пишутся одной транзакцией,
-одним коммитом (RFC §5.1). Публикация в брокер сюда не входит вовсе — иначе
-недоступность брокера роняла бы приём платежа, а весь смысл паттерна в том,
-чтобы не роняла.
-"""
-
 from datetime import datetime
 from uuid import UUID
 
@@ -25,10 +17,8 @@ async def create_payment(
     event_id: UUID,
     now: datetime,
 ) -> None:
+    """Платёж и событие пишутся одной транзакцией. В брокер отсюда не публикуем."""
     await PaymentRepository(session).add(payment)
-    # Событие несёт только идентификаторы: остальное обработчик читает из БД,
-    # иначе появился бы второй источник правды, расходящийся при повторной
-    # доставке (RFC §9)
     await OutboxRepository(session).add(
         event_id=event_id,
         aggregate_id=payment.payment_id,
