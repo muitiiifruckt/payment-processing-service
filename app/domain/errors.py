@@ -2,9 +2,9 @@ class DomainError(Exception):
     """Нарушение правила предметной области."""
 
 
-class InvalidTransition(DomainError):
+class InvalidTransitionError(DomainError):
     """Переход статуса, не разрешённый моделью состояний."""
 
 
-class InvalidAmount(DomainError):
+class InvalidAmountError(DomainError):
     """Сумма не удовлетворяет инвариантам платежа."""
