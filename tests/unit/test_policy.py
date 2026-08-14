@@ -1,4 +1,4 @@
-from app.application.backoff import RETRY_QUEUE_DELAYS, webhook_backoff
+from app.application.policy import RETRY_QUEUE_DELAYS, webhook_backoff
 
 
 def test_webhook_backoff_grows_exponentially() -> None:

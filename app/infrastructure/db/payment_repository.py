@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -53,6 +54,13 @@ class PaymentRepository:
             .returning(PaymentRow.payment_id)
         )
         return await self._session.scalar(statement) is not None
+
+    async def claim(self, payment_id: UUID, *, now: datetime, lease: timedelta) -> bool:
+        """Взять платёж в работу. False, если он занят или уже терминален."""
+        return False
+
+    async def release(self, payment_id: UUID) -> None:
+        """Снять захват — обработчик закончил, удачно или нет."""
 
     async def get(self, payment_id: UUID) -> Payment | None:
         row = await self._session.scalar(
