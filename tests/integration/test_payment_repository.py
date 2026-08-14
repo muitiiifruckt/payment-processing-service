@@ -27,7 +27,6 @@ async def test_saved_payment_is_read_back_unchanged(session: AsyncSession) -> No
     repository = PaymentRepository(session)
     payment = a_payment(amount=Money(Decimal("100.0001"), Currency.EUR))
 
-    await repository.add(payment)
-    await session.flush()
+    assert await repository.add_if_absent(payment)
 
     assert await repository.get(PAYMENT_ID) == payment
