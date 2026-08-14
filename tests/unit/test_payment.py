@@ -19,6 +19,8 @@ def pending_payment() -> Payment:
         payment_id=PAYMENT_ID,
         amount=Money(Decimal("100.00"), Currency.RUB),
         created_at=CREATED_AT,
+        idempotency_key="key-1",
+        request_hash="0" * 64,
     )
 
 

@@ -12,8 +12,11 @@ from app.infrastructure.db.models import Base
 config = context.config
 
 # URL приходит из окружения, а не из alembic.ini: ini интерполирует %,
-# и пароль с этим символом сломал бы конфигурацию
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# и пароль с этим символом сломал бы конфигурацию.
+# Уже выставленное значение не трогаем — так тесты подставляют адрес
+# поднятого ими контейнера
+if not config.get_main_option("sqlalchemy.url", None):
+    config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
