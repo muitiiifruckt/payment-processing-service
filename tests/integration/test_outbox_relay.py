@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -5,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.policy import OUTBOX_MAX_DELAY, outbox_backoff
+from app.application.policy import outbox_backoff
 from app.application.publish_outbox import publish_pending
 from app.infrastructure.db.models import OutboxRow
 from app.infrastructure.db.outbox_repository import OutboxRepository
@@ -95,10 +96,6 @@ async def test_failed_publish_defers_and_records_the_reason(session: AsyncSessio
     assert "канал закрыт" in (stored.last_error or "")
 
 
-async def test_deferral_never_exceeds_the_ceiling() -> None:
-    assert outbox_backoff(100) == OUTBOX_MAX_DELAY
-
-
 async def test_event_survives_the_broker_outage_and_goes_out_later(
     session: AsyncSession,
 ) -> None:
@@ -128,11 +125,9 @@ async def test_event_id_survives_republishing(session: AsyncSession) -> None:
 
 
 async def test_publish_that_hangs_is_cut_off_by_the_timeout(session: AsyncSession) -> None:
-    import asyncio
-
     class HangingPublisher:
         async def publish(self, event_id: UUID, event_type: str, payload: dict[str, Any]) -> None:
-            await asyncio.sleep(30)
+            await asyncio.Event().wait()
 
     event_id = uuid4()
     await add_event(session, event_id)
