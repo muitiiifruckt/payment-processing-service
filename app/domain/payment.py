@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from app.domain.errors import InvalidTransitionError
@@ -18,6 +19,14 @@ class Payment:
     request_hash: str
     status: PaymentStatus = PaymentStatus.PENDING
     processed_at: datetime | None = None
+    description: str | None = None
+    payment_metadata: dict[str, Any] = field(default_factory=dict)
+    webhook_url: str | None = None
+    webhook_delivered_at: datetime | None = None
+
+    @property
+    def needs_webhook(self) -> bool:
+        return self.webhook_url is not None and self.webhook_delivered_at is None
 
     def mark_succeeded(self, now: datetime) -> None:
         self._settle(PaymentStatus.SUCCEEDED, now)
