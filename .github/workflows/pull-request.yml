@@ -44,6 +44,8 @@ jobs:
       # и сервис выше окажется декорацией
       TEST_DATABASE_URL: postgresql+asyncpg://payments:payments@localhost:5432/payments
       DATABASE_URL: postgresql+asyncpg://payments:payments@localhost:5432/payments
+      # то же самое для брокера
+      TEST_RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       # обязательная настройка без дефолта — иначе alembic не импортируется
       API_KEY: ci-api-key
