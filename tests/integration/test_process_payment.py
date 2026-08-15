@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.policy import CLAIM_LEASE
 from app.application.ports import GatewayUnavailableError
 from app.application.process_payment import (
-    PermanentFailure,
-    TransientFailure,
+    PermanentError,
+    TransientError,
     process_payment,
 )
 from app.domain.money import Currency, Money
@@ -71,9 +71,7 @@ async def stored(session_factory: async_sessionmaker[AsyncSession]) -> Payment:
     return payment
 
 
-async def reload(
-    sessions: async_sessionmaker[AsyncSession], payment_id: UUID
-) -> Payment:
+async def reload(sessions: async_sessionmaker[AsyncSession], payment_id: UUID) -> Payment:
     async with sessions() as session:
         found = await PaymentRepository(session).get(payment_id)
     assert found is not None
@@ -133,7 +131,7 @@ async def test_redelivery_keeps_the_terminal_status(
 async def test_unavailable_gateway_leaves_the_payment_pending_and_asks_for_a_retry(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    with pytest.raises(TransientFailure):
+    with pytest.raises(TransientError):
         await process_payment(
             session_factory,
             stored.payment_id,
@@ -149,7 +147,7 @@ async def test_unavailable_gateway_leaves_the_payment_pending_and_asks_for_a_ret
 async def test_unavailable_gateway_releases_the_claim(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    with pytest.raises(TransientFailure):
+    with pytest.raises(TransientError):
         await process_payment(
             session_factory,
             stored.payment_id,
@@ -159,9 +157,7 @@ async def test_unavailable_gateway_releases_the_claim(
 
     # захват снят живым обработчиком, ждать протухания незачем
     async with session_factory() as session, session.begin():
-        assert await PaymentRepository(session).claim(
-            stored.payment_id, now=NOW, lease=CLAIM_LEASE
-        )
+        assert await PaymentRepository(session).claim(stored.payment_id, now=NOW, lease=CLAIM_LEASE)
 
 
 async def test_payment_held_by_another_worker_goes_to_a_retry(
@@ -171,7 +167,7 @@ async def test_payment_held_by_another_worker_goes_to_a_retry(
         await PaymentRepository(session).claim(stored.payment_id, now=NOW, lease=CLAIM_LEASE)
 
     gateway = AlwaysSucceeds()
-    with pytest.raises(TransientFailure):
+    with pytest.raises(TransientError):
         await process_payment(
             session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock()
         )
@@ -182,7 +178,7 @@ async def test_payment_held_by_another_worker_goes_to_a_retry(
 async def test_event_about_an_unknown_payment_is_permanent(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    with pytest.raises(PermanentFailure):
+    with pytest.raises(PermanentError):
         await process_payment(
             session_factory, uuid4(), gateway=AlwaysSucceeds(), clock=FrozenClock()
         )
