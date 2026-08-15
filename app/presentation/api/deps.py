@@ -14,7 +14,9 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def require_api_key(key: Annotated[str | None, Security(api_key_header)]) -> None:
-    if key is None or not secrets.compare_digest(key, settings.api_key):
+    # сравнение байтов: compare_digest на строке с не-ASCII символом
+    # поднимает TypeError, и попытка подбора ключа возвращает 500 вместо 401
+    if key is None or not secrets.compare_digest(key.encode(), settings.api_key.encode()):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "неверный или отсутствующий X-API-Key")
 
 

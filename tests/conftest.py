@@ -2,6 +2,9 @@ import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
+# до импорта app: настройки без дефолта читаются на импорте модуля
+os.environ.setdefault("API_KEY", "test-api-key")
+
 import pytest
 from alembic import command
 from alembic.config import Config

@@ -31,7 +31,6 @@ router = APIRouter(
 @router.post(
     "/payments",
     status_code=status.HTTP_202_ACCEPTED,
-    response_model=None,
     responses={409: {"model": ErrorResponse}},
 )
 async def create(
@@ -40,7 +39,7 @@ async def create(
     clock: ClockDep,
     ids: IdsDep,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
-) -> PaymentAccepted | PaymentView:
+) -> PaymentAccepted:
     now = clock.now()
     payment = Payment(
         payment_id=ids.new_id(),
@@ -64,8 +63,10 @@ async def create(
                 status.HTTP_409_CONFLICT,
                 "Idempotency-Key уже использован с другим телом запроса",
             )
-        # повтор: отдаём фактическое состояние, платёж мог уже обработаться
-        return PaymentView.of(stored)
+        # повтор отвечает тем же, чем ответил оригинал: клиент, разбирающий
+        # 202 по контракту, не должен ломаться именно на ретрае.
+        # Актуальное состояние платежа отдаёт GET
+        payment = stored
 
     return PaymentAccepted(
         payment_id=payment.payment_id, status=payment.status, created_at=payment.created_at
