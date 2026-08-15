@@ -20,6 +20,10 @@ def _to_domain(row: PaymentRow) -> Payment:
         request_hash=row.request_hash,
         status=PaymentStatus(row.status),
         processed_at=row.processed_at,
+        description=row.description,
+        payment_metadata=row.payment_metadata,
+        webhook_url=row.webhook_url,
+        webhook_delivered_at=row.webhook_delivered_at,
     )
 
 
@@ -33,6 +37,12 @@ def _to_values(payment: Payment) -> dict[str, object]:
         "request_hash": payment.request_hash,
         "created_at": payment.created_at,
         "processed_at": payment.processed_at,
+        "description": payment.description,
+        # имя атрибута, а не колонки: "metadata" SQLAlchemy разрешит
+        # в Base.metadata и упадёт внутри bulk-персистенса
+        "payment_metadata": payment.payment_metadata,
+        "webhook_url": payment.webhook_url,
+        "webhook_delivered_at": payment.webhook_delivered_at,
     }
 
 
