@@ -1,19 +1,65 @@
 import logging
 from typing import Any
+from uuid import UUID
 
 from faststream import FastStream
 from faststream.rabbit import RabbitBroker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.create_payment import PAYMENT_CREATED
 from app.application.ports import Clock, PaymentGateway
+from app.application.process_payment import PermanentError, process_payment
+from app.infrastructure.broker import topology
+from app.infrastructure.broker.broker import declare_topology, make_broker
+from app.infrastructure.clock import SystemClock
+from app.infrastructure.config import settings
+from app.infrastructure.db.session import session_factory
+from app.infrastructure.gateway import EmulatedGateway
 
 log = logging.getLogger(__name__)
 
 
 def register_handlers(
-    broker: RabbitBroker, *, gateway: PaymentGateway, clock: Clock, sessions: Any
+    broker: RabbitBroker,
+    *,
+    gateway: PaymentGateway,
+    clock: Clock,
+    sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    return None
+    @broker.subscriber(topology.payments_new, topology.payments_exchange)
+    async def on_payment_created(event: dict[str, Any]) -> None:
+        event_type = event.get("event_type", PAYMENT_CREATED)
+        if event_type != PAYMENT_CREATED:
+            raise PermanentError(f"неизвестный тип события: {event_type}")
+
+        raw = event.get("payment_id")
+        if not isinstance(raw, str):
+            raise PermanentError("в событии нет payment_id")
+        try:
+            payment_id = UUID(raw)
+        except ValueError as error:
+            raise PermanentError(f"payment_id не разбирается: {raw}") from error
+
+        await process_payment(sessions, payment_id, gateway=gateway, clock=clock)
 
 
 def create_app() -> FastStream:
-    raise NotImplementedError
+    broker = make_broker()
+    clock = SystemClock()
+    register_handlers(
+        broker,
+        gateway=EmulatedGateway(clock, settings.gateway_force_outcome),
+        clock=clock,
+        sessions=session_factory(),
+    )
+
+    app = FastStream(broker)
+
+    @app.after_startup
+    async def declare() -> None:
+        await declare_topology(broker)
+
+    return app
+
+
+app = create_app()
