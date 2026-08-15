@@ -18,6 +18,9 @@ CLAIM_LEASE = timedelta(seconds=10)
 OUTBOX_POLL_INTERVAL = 1.0
 OUTBOX_BATCH = 50
 OUTBOX_PUBLISH_TIMEOUT = 5.0
+#: Потолок длительности тика. Пачка захвачена FOR UPDATE, поэтому без него
+#: медленный брокер держит строки и соединение batch * timeout секунд подряд.
+OUTBOX_TICK_BUDGET = 15.0
 OUTBOX_BASE_DELAY = 1.0
 OUTBOX_MAX_DELAY = 60.0
 #: После стольких неудач подряд событие логируется как требующее внимания
