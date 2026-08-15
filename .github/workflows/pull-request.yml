@@ -45,6 +45,8 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://payments:payments@localhost:5432/payments
       DATABASE_URL: postgresql+asyncpg://payments:payments@localhost:5432/payments
       RABBITMQ_URL: amqp://guest:guest@localhost:5672/
+      # обязательная настройка без дефолта — иначе alembic не импортируется
+      API_KEY: ci-api-key
 
     steps:
       - uses: actions/checkout@v4

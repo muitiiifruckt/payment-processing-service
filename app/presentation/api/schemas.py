@@ -6,23 +6,32 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.money import Currency
+from app.domain.money import MAX_AMOUNT, Currency
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
 from app.infrastructure.config import settings
 
-#: Наружу деньги всегда с двумя знаками и строкой
+#: Наружу деньги всегда строкой и не короче двух знаков
 OUTPUT_SCALE = Decimal("0.01")
 
 
 def format_amount(amount: Decimal) -> str:
-    return format(amount.quantize(OUTPUT_SCALE), "f")
+    # numeric(20,4) возвращает масштаб колонки, поэтому сначала снимаем
+    # незначащие нули, и только потом добиваем до двух знаков. Обратный
+    # порядок округлял бы 1.005 до 1.00 — сумма, которой в базе нет
+    trimmed = amount.normalize()
+    exponent = trimmed.as_tuple().exponent
+    if not isinstance(exponent, int) or exponent > -2:
+        trimmed = trimmed.quantize(OUTPUT_SCALE)
+    return format(trimmed, "f")
 
 
 class PaymentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    amount: Decimal = Field(gt=0)
+    # верхняя граница та же, что в домене: иначе InvalidAmountError вылетает
+    # мимо валидации и превращается в 500
+    amount: Decimal = Field(gt=0, lt=MAX_AMOUNT)
     currency: Currency
     description: str | None = Field(default=None, max_length=settings.description_max_length)
     metadata: dict[str, Any] = Field(default_factory=dict)
