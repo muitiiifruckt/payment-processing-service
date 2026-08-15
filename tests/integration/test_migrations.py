@@ -3,18 +3,12 @@ from pathlib import Path
 
 import sqlalchemy as sa
 from alembic import command
-from alembic.config import Config
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from tests.conftest import alembic_config
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 SCRATCH_DB = "migrations_roundtrip"
-
-
-def alembic_config(url: str) -> Config:
-    config = Config(str(ROOT / "alembic.ini"))
-    config.set_main_option("script_location", str(ROOT / "migrations"))
-    config.set_main_option("sqlalchemy.url", url)
-    return config
 
 
 async def test_migrations_apply_and_roll_back(database_url: str) -> None:

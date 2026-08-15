@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -39,12 +40,17 @@ def database_url() -> Iterator[str]:
         yield container.get_connection_url()
 
 
-@pytest.fixture(scope="session")
-def migrated_database(database_url: str) -> str:
+def alembic_config(url: str) -> Config:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
-    config.set_main_option("sqlalchemy.url", database_url)
-    command.upgrade(config, "head")
+    # через attributes, а не set_main_option: ini интерполирует % в пароле
+    config.attributes["database_url"] = url
+    return config
+
+
+@pytest.fixture(scope="session")
+def migrated_database(database_url: str) -> str:
+    command.upgrade(alembic_config(database_url), "head")
     return database_url
 
 
@@ -69,6 +75,15 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture
-def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """Настоящие коммиты — для проверки атомарности. Чистка за тестом."""
-    return async_sessionmaker(bind=engine, expire_on_commit=False)
+async def session_factory(
+    engine: AsyncEngine,
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """Настоящие коммиты — для проверки атомарности и блокировок.
+
+    Записанное чистится после теста: иначе оставленные строки outbox попадают
+    в чужую выборку, а на переиспользуемой базе копятся между прогонами.
+    """
+    yield async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.execute(text("TRUNCATE outbox, payments"))

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff check *)",
+      "Bash(uv run ruff format --check *)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run alembic check *)",
+      "Bash(npm run typecheck)",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__burp__get_proxy_http_history",
+      "mcp__burp__get_proxy_http_history_regex",
+      "mcp__burp__get_collaborator_interactions",
+      "mcp__claude_ai_Gmail__search_threads"
+    ]
+  }
+}

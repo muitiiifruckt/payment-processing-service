@@ -76,9 +76,13 @@ class PaymentRepository:
         )
         return await self._session.scalar(statement) is not None
 
-    async def save_result(self, payment: Payment) -> None:
-        """Записать исход обработки. Разрешено только из pending."""
-        await self._session.execute(
+    async def save_result(self, payment: Payment) -> bool:
+        """Записать исход. False — платёж уже терминален, наш результат лишний.
+
+        Обработчик обязан проверить возврат: при протухшем захвате к шлюзу мог
+        сходить второй прогон, и молчаливый no-op не отличить от успеха.
+        """
+        written = await self._session.scalar(
             update(PaymentRow)
             .where(
                 PaymentRow.payment_id == payment.payment_id,
@@ -89,12 +93,20 @@ class PaymentRepository:
                 processed_at=payment.processed_at,
                 locked_at=None,
             )
+            .returning(PaymentRow.payment_id)
         )
+        return written is not None
 
-    async def release(self, payment_id: UUID) -> None:
-        """Снять захват — обработчик закончил, удачно или нет."""
+    async def release(self, payment_id: UUID, *, claimed_at: datetime) -> None:
+        """Снять свой захват. Чужой не трогаем: иначе снимем ограничение
+        на число одновременных обращений к шлюзу."""
         await self._session.execute(
-            update(PaymentRow).where(PaymentRow.payment_id == payment_id).values(locked_at=None)
+            update(PaymentRow)
+            .where(
+                PaymentRow.payment_id == payment_id,
+                PaymentRow.locked_at == claimed_at,
+            )
+            .values(locked_at=None)
         )
 
     async def get(self, payment_id: UUID) -> Payment | None:
