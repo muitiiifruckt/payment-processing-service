@@ -47,7 +47,9 @@ async def create(
         amount=Money(body.amount, Currency(body.currency)),
         created_at=now,
         idempotency_key=idempotency_key,
-        request_hash=request_hash(body.model_dump(mode="json")),
+        # python-режим, а не json: в json Decimal уже строка, и «100» с «100.00»
+        # не свести к одному виду
+        request_hash=request_hash(body.model_dump()),
         description=body.description,
         payment_metadata=body.metadata,
         webhook_url=body.webhook_url,
