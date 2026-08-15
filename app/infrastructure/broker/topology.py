@@ -49,5 +49,12 @@ retry_queues = [retry_queue(attempt) for attempt in range(1, len(RETRY_QUEUE_DEL
 
 dead_letter_queue = RabbitQueue(DLQ_KEY, durable=True, routing_key=DLQ_KEY)
 
-ALL_QUEUES = [payments_new, *retry_queues, dead_letter_queue]
 ALL_EXCHANGES = [payments_exchange, dlx_exchange]
+
+#: Объявления мало: без привязки очередь не получит ни одного сообщения,
+#: а публикация уйдёт в никуда
+BINDINGS = [
+    (payments_new, payments_exchange),
+    *[(queue, payments_exchange) for queue in retry_queues],
+    (dead_letter_queue, dlx_exchange),
+]
