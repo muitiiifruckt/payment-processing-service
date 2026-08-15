@@ -58,9 +58,26 @@ async def test_released_claim_is_available_immediately(session: AsyncSession) ->
     repository = PaymentRepository(session)
 
     await repository.claim(payment_id, now=NOW, lease=LEASE)
-    await repository.release(payment_id)
+    await repository.release(payment_id, claimed_at=NOW)
 
     assert await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+
+async def test_release_does_not_touch_a_claim_taken_by_someone_else(
+    session: AsyncSession,
+) -> None:
+    payment_id = UUID("0192f3a4-0000-7000-8000-000000000035")
+    await stored_payment(session, payment_id, "key-claim-6")
+    repository = PaymentRepository(session)
+
+    await repository.claim(payment_id, now=NOW, lease=LEASE)
+    later = NOW + LEASE + timedelta(seconds=1)
+    await repository.claim(payment_id, now=later, lease=LEASE)
+
+    # опоздавший первый обработчик пытается прибраться за собой
+    await repository.release(payment_id, claimed_at=NOW)
+
+    assert not await repository.claim(payment_id, now=later, lease=LEASE)
 
 
 async def test_terminal_payment_cannot_be_claimed(session: AsyncSession) -> None:

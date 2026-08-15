@@ -27,3 +27,18 @@ def test_amounts_differing_only_in_scale_are_equal() -> None:
 
 def test_same_amount_in_different_currencies_is_not_equal() -> None:
     assert Money(Decimal("100.00"), Currency.RUB) != Money(Decimal("100.00"), Currency.USD)
+
+
+def test_amount_with_too_many_decimal_places_is_rejected() -> None:
+    with pytest.raises(InvalidAmountError):
+        Money(Decimal("0.00001"), Currency.RUB)
+
+
+def test_amount_beyond_the_column_range_is_rejected() -> None:
+    with pytest.raises(InvalidAmountError):
+        Money(Decimal("1e17"), Currency.RUB)
+
+
+def test_non_finite_amount_is_rejected() -> None:
+    with pytest.raises(InvalidAmountError):
+        Money(Decimal("NaN"), Currency.RUB)

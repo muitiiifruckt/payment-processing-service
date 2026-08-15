@@ -24,6 +24,9 @@ async def create_payment(
     """
     payments = PaymentRepository(session)
 
+    # Верно при READ COMMITTED: перечитывание после конфликта берёт свежий снимок.
+    # Под REPEATABLE READ проигравший увидел бы снимок до чужого коммита и получил
+    # бы 500 на законном повторе ключа.
     if not await payments.add_if_absent(payment):
         existing = await payments.get_by_idempotency_key(payment.idempotency_key)
         if existing is None:

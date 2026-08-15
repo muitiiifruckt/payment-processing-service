@@ -4,19 +4,20 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.infrastructure.config import settings
 from app.infrastructure.db.models import Base
 
 config = context.config
 
-# URL приходит из окружения, а не из alembic.ini: ini интерполирует %,
-# и пароль с этим символом сломал бы конфигурацию.
-# Уже выставленное значение не трогаем — так тесты подставляют адрес
-# поднятого ими контейнера
-if not config.get_main_option("sqlalchemy.url", None):
-    config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# URL не кладём в ini: ConfigParser интерполирует %, и пароль с этим символом
+# уронит конфигурацию. attributes — обычный dict, интерполяции там нет
+def database_url() -> str:
+    injected = config.attributes.get("database_url")
+    return str(injected) if injected else settings.database_url
+
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -26,7 +27,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
+        url=database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -48,9 +49,8 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_async_engine(
+        database_url(),
         # обязателен: иначе на выходе из asyncio.run в пуле остаются живые
         # соединения и получаем «Event loop is closed»
         poolclass=pool.NullPool,

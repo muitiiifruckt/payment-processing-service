@@ -17,6 +17,7 @@ def test_retry_queue_delays_do_not_coincide_with_webhook_backoff() -> None:
     assert list(RETRY_QUEUE_DELAYS) != webhook_delays
 
 
-def test_claim_lease_expires_before_the_retries_run_out() -> None:
-    """Иначе платёж, чей обработчик умер, не захватить ни на одном повторе."""
-    assert CLAIM_LEASE.total_seconds() < sum(RETRY_QUEUE_DELAYS)
+def test_claim_lease_fits_between_the_first_retry_and_the_budget() -> None:
+    """Слишком долгий — платёж не захватить ни на одном повторе и он уедет в DLQ
+    живым. Слишком короткий — у работающего обработчика уведут захват."""
+    assert min(RETRY_QUEUE_DELAYS) <= CLAIM_LEASE.total_seconds() < sum(RETRY_QUEUE_DELAYS)
