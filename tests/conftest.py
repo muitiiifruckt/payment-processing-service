@@ -43,6 +43,22 @@ def database_url() -> Iterator[str]:
         yield container.get_connection_url()
 
 
+@pytest.fixture(scope="session")
+def rabbitmq_url() -> Iterator[str]:
+    external = os.getenv("TEST_RABBITMQ_URL")
+    if external:
+        yield external
+        return
+
+    from testcontainers.rabbitmq import RabbitMqContainer
+
+    with RabbitMqContainer("rabbitmq:4-alpine") as container:
+        yield (
+            f"amqp://{container.username}:{container.password}"
+            f"@{container.get_container_host_ip()}:{container.get_exposed_port(5672)}/"
+        )
+
+
 def alembic_config(url: str) -> Config:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
