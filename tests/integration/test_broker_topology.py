@@ -72,7 +72,7 @@ async def test_published_event_survives_a_broker_restart(
 
 
 async def test_unroutable_publish_raises_instead_of_vanishing(broker: RabbitBroker) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(aio_pika.exceptions.DeliveryError):
         await broker.publish(
             {"id": "orphan"},
             routing_key="payments.nowhere",

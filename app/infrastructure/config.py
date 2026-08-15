@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     # без дефолта: забытый API_KEY иначе оставит сервис под ключом из репозитория
     api_key: str
 
+    prefetch_count: int = 10
+
     description_max_length: int = 512
     metadata_max_bytes: int = 8 * 1024
 
