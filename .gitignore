@@ -22,6 +22,7 @@ htmlcov/
 # Редакторы
 .idea/
 .vscode/
+.claude/worktrees/
 
 # Windows / OneDrive
 Thumbs.db

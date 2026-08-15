@@ -14,6 +14,21 @@ WEBHOOK_BASE_DELAY = 1.0
 CLAIM_LEASE = timedelta(seconds=10)
 
 
+#: Публикация из outbox: период тика, размер пачки, таймаут ожидания подтверждения
+OUTBOX_POLL_INTERVAL = 1.0
+OUTBOX_BATCH = 50
+OUTBOX_PUBLISH_TIMEOUT = 5.0
+OUTBOX_BASE_DELAY = 1.0
+OUTBOX_MAX_DELAY = 60.0
+#: После стольких неудач подряд событие логируется как требующее внимания
+OUTBOX_ALERT_AFTER = 10
+
+
 def webhook_backoff(attempt: int) -> float:
     """Задержка перед попыткой attempt + 1."""
     return float(WEBHOOK_BASE_DELAY * 2 ** (attempt - 1))
+
+
+def outbox_backoff(attempts: int) -> float:
+    """Задержка перед следующей попыткой публикации, с потолком."""
+    return float(min(OUTBOX_BASE_DELAY * 2**attempts, OUTBOX_MAX_DELAY))

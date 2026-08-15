@@ -14,6 +14,7 @@ class PendingEvent:
     event_id: UUID
     event_type: str
     payload: dict[str, Any]
+    attempts: int
 
 
 class OutboxRepository:
@@ -59,6 +60,7 @@ class OutboxRepository:
                 event_id=row.event_id,
                 event_type=row.event_type,
                 payload=row.payload,
+                attempts=row.attempts,
             )
             for row in rows
         ]
