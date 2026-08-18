@@ -1,15 +1,20 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 from uuid import UUID, uuid4
 
 import aio_pika
 import pytest
+from faststream import TestApp
 from faststream.rabbit import RabbitBroker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.policy import RETRY_QUEUE_DELAYS
 from app.infrastructure.broker import topology
 from app.infrastructure.broker.broker import RabbitEventPublisher, declare_topology, make_broker
+from app.infrastructure.clock import SystemClock
+from app.presentation.consumer import build_app
 
 
 @pytest.fixture
@@ -17,9 +22,11 @@ async def broker(rabbitmq_url: str) -> AsyncIterator[RabbitBroker]:
     broker = make_broker(rabbitmq_url)
     await broker.connect()
     await declare_topology(broker)
-    # очередь durable и общая на всю сессию: не вычистив её, тест видит
-    # сообщение соседа и порядок прогона начинает влиять на результат
-    await (await broker.declare_queue(topology.payments_new)).purge()
+    # очереди durable и общие на всю сессию: не вычистив их, тест видит
+    # сообщение соседа, а сообщение из retry-очереди доезжает по TTL уже
+    # после чужой очистки — порядок прогона начинает влиять на результат
+    for queue, _ in topology.BINDINGS:
+        await (await broker.declare_queue(queue)).purge()
     yield broker
     await broker.stop()
 
@@ -93,11 +100,43 @@ async def test_unroutable_publish_raises_instead_of_vanishing(broker: RabbitBrok
         )
 
 
-async def test_retry_queues_and_the_dlq_exist_right_after_startup(
-    broker: RabbitBroker, rabbitmq_url: str
+class _NeverCalled:
+    """Ни шлюз, ни отправитель в этом тесте не нужны: сообщений нет."""
+
+    async def process(self, payment_id: UUID) -> bool:  # pragma: no cover
+        raise AssertionError("шлюз не должен вызываться")
+
+    async def send(self, url: str, payload: dict[str, Any]) -> None:  # pragma: no cover
+        raise AssertionError("отправитель не должен вызываться")
+
+
+async def _delete_queues(rabbitmq_url: str) -> None:
+    """Очереди durable и переживают предыдущие тесты — без удаления
+    проверка «объявились на старте» проходит сама собой."""
+    connection = await aio_pika.connect_robust(rabbitmq_url)
+    async with connection:
+        channel = await connection.channel()
+        for attempt in range(1, len(RETRY_QUEUE_DELAYS) + 1):
+            await channel.queue_delete(topology.retry_key(attempt))
+        await channel.queue_delete(topology.DLQ_KEY)
+
+
+async def test_starting_the_consumer_declares_the_retry_queues_and_the_dlq(
+    rabbitmq_url: str, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Очереди объявляются на старте, а не при первом попадании сообщения:
-    иначе первый же отказ уходит в никуда."""
+    """Очереди объявляются подъёмом приложения, а не первым попавшим
+    сообщением: иначе первый же отказ на холодном старте уходит в никуда."""
+    await _delete_queues(rabbitmq_url)
+    app = build_app(
+        make_broker(rabbitmq_url),
+        gateway=_NeverCalled(),
+        clock=SystemClock(),
+        sessions=session_factory,
+        sender=_NeverCalled(),
+    )
+    async with TestApp(app):
+        pass
+
     connection = await aio_pika.connect_robust(rabbitmq_url)
     async with connection:
         channel = await connection.channel()

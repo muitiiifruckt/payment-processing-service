@@ -52,15 +52,30 @@ def register_handlers(
                 sender=sender,
             )
         except PermanentError as error:
-            await route_failure(
-                broker, event, attempt=attempt, error=error, kind=PERMANENT, event_type=event_type
-            )
+            await _route(broker, event, attempt, error, PERMANENT, event_type)
         except Exception as error:
             # умолчание в пользу повтора: неучтённая ошибка не должна
             # стоить сообщения (RFC §6.3)
-            await route_failure(
-                broker, event, attempt=attempt, error=error, kind=TRANSIENT, event_type=event_type
-            )
+            await _route(broker, event, attempt, error, TRANSIENT, event_type)
+
+
+async def _route(
+    broker: RabbitBroker,
+    event: dict[str, Any],
+    attempt: int,
+    error: Exception,
+    kind: str,
+    event_type: str,
+) -> None:
+    """Отказ самой пересылки не глушится: исходное сообщение не подтверждается
+    и уходит по страховочному dead-letter, а причина видна в логе."""
+    try:
+        await route_failure(
+            broker, event, attempt=attempt, error=error, kind=kind, event_type=event_type
+        )
+    except Exception:
+        log.exception("не удалось переслать сообщение по отказу %s", error)
+        raise
 
 
 async def _handle(
@@ -106,9 +121,15 @@ def build_app(
     app = FastStream(broker)
     relay: list[asyncio.Task[None]] = []
 
+    @app.on_startup
+    async def declare() -> None:
+        # до старта подписчиков: иначе первый же отказ на холодном старте
+        # публикуется в ещё не объявленную retry-очередь и уходит в DLQ
+        await broker.connect()
+        await declare_topology(broker)
+
     @app.after_startup
     async def start_relay() -> None:
-        await declare_topology(broker)
         relay.append(
             asyncio.create_task(relay_forever(sessions, RabbitEventPublisher(broker), clock))
         )
