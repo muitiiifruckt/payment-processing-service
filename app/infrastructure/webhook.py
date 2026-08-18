@@ -12,6 +12,12 @@ RETRYABLE_CLIENT_ERRORS = frozenset({408, 429})
 log = logging.getLogger(__name__)
 
 
+def make_client() -> httpx.AsyncClient:
+    """Переадресации не выполняются: адрес задаёт клиент, и второй хоп
+    увёл бы запрос туда, куда он не просил."""
+    return httpx.AsyncClient(timeout=settings.webhook_timeout_seconds, follow_redirects=False)
+
+
 class HttpWebhookSender:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self._client = client
@@ -20,9 +26,7 @@ class HttpWebhookSender:
         if self._client is not None:
             await self._post(self._client, url, payload)
             return
-        async with httpx.AsyncClient(
-            timeout=settings.webhook_timeout_seconds, follow_redirects=False
-        ) as client:
+        async with make_client() as client:
             await self._post(client, url, payload)
 
     async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> None:
