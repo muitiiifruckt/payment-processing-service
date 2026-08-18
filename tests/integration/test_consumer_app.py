@@ -22,6 +22,10 @@ from app.presentation.consumer import build_app
 NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
+class SilentSender:
+    async def send(self, url: str, payload: dict[str, object]) -> None: ...
+
+
 class TickingClock:
     def __init__(self) -> None:
         self._now = NOW
@@ -84,6 +88,7 @@ async def test_consumer_process_drains_the_outbox_and_processes_the_payment(
         gateway=EmulatedGateway(clock, "succeeded"),
         clock=clock,
         sessions=session_factory,
+        sender=SilentSender(),
     )
 
     async def succeeded() -> bool:
@@ -99,7 +104,11 @@ async def test_relay_task_does_not_outlive_the_application(
     broker = RabbitBroker()
     clock = TickingClock()
     app = build_app(
-        broker, gateway=EmulatedGateway(clock, "succeeded"), clock=clock, sessions=session_factory
+        broker,
+        gateway=EmulatedGateway(clock, "succeeded"),
+        clock=clock,
+        sessions=session_factory,
+        sender=SilentSender(),
     )
 
     async with TestRabbitBroker(broker), TestApp(app):
