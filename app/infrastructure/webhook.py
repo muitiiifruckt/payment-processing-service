@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import httpx
@@ -7,6 +8,8 @@ from app.infrastructure.config import settings
 
 #: 408 и 429 — единственные 4xx, которые имеет смысл повторять (RFC §6.2)
 RETRYABLE_CLIENT_ERRORS = frozenset({408, 429})
+
+log = logging.getLogger(__name__)
 
 
 class HttpWebhookSender:
@@ -26,14 +29,14 @@ class HttpWebhookSender:
         request = client.build_request("POST", url, json=payload)
         try:
             response = await client.send(request, stream=True)
-            try:
-                await _drain(response)
-            finally:
-                await response.aclose()
         except httpx.HTTPError as error:
             # обрыв, отказ DNS, истёкшее ожидание — получателя сейчас нет,
             # но он может появиться к следующей попытке
             raise WebhookUnavailableError(f"{type(error).__name__}: {error}") from error
+
+        # исход решает код ответа: он уже известен, а тело нам не нужно.
+        # Обрыв на чтении тела после 200 — не повод отправлять событие второй раз
+        await _drain(response)
         if response.status_code < 300:
             return
         if response.is_redirect:
@@ -52,10 +55,15 @@ async def _drain(response: httpx.Response) -> None:
     """Тело получателя нам не нужно, но соединение надо освободить. Читаем
     потоком и не дальше лимита: иначе ответ произвольного размера съест память."""
     read = 0
-    async for chunk in response.aiter_bytes():
-        read += len(chunk)
-        if read >= settings.webhook_max_response_bytes:
-            break
+    try:
+        async for chunk in response.aiter_bytes():
+            read += len(chunk)
+            if read >= settings.webhook_max_response_bytes:
+                break
+    except httpx.HTTPError:
+        log.debug("тело ответа получателя дочитать не удалось", exc_info=True)
+    finally:
+        await response.aclose()
 
 
 def _retry_after(response: httpx.Response) -> float | None:
