@@ -9,6 +9,10 @@ from app.infrastructure.config import settings
 def make_broker(url: str | None = None) -> RabbitBroker:
     return RabbitBroker(
         url or settings.rabbitmq_url,
+        # RFC §5.2: процесс обязан подняться и при мёртвом брокере. С fail_fast
+        # первая же неудачная попытка убивает старт, и в compose consumer
+        # не переживает загрузку RabbitMQ
+        fail_fast=False,
         default_channel=Channel(
             prefetch_count=settings.prefetch_count,
             # без подтверждения publish возвращается сразу после записи в сокет,
