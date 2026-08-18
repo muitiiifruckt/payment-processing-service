@@ -37,6 +37,7 @@ async def route_failure(
         event,
         routing_key=topology.retry_key(next_attempt),
         exchange=topology.payments_exchange,
+        message_id=_message_id(event),
         headers=_headers(
             event, attempt=next_attempt, error=error, kind=kind, event_type=event_type
         ),
@@ -58,10 +59,18 @@ async def _dead_letter(
         event,
         routing_key=topology.DLQ_KEY,
         exchange=topology.dlx_exchange,
+        message_id=_message_id(event),
         headers=_headers(event, attempt=attempt, error=error, kind=kind, event_type=event_type),
         persist=True,
         mandatory=True,
     )
+
+
+def _message_id(event: dict[str, Any]) -> str | None:
+    """Публикующая сторона кладёт сюда event_id. Потеряв его при пересылке,
+    теряем и связь сообщения с событием после первого же повтора."""
+    raw = event.get("event_id")
+    return str(raw) if isinstance(raw, str) else None
 
 
 def _headers(
@@ -74,5 +83,5 @@ def _headers(
         "x-attempt": attempt,
         "x-failure-class": kind,
         "x-failure-reason": f"{type(error).__name__}: {error}"[:MAX_REASON],
-        "x-payment-id": str(event.get("payment_id", "")),
+        "x-payment-id": str(event.get("payment_id") or ""),
     }
