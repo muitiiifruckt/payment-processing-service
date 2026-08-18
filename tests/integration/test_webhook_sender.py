@@ -99,3 +99,17 @@ async def test_an_oversized_answer_is_not_read_whole() -> None:
         await HttpWebhookSender().send(URL, PAYLOAD)
 
     assert stream.given <= limit + 8192
+
+
+async def test_a_stalled_body_after_a_successful_answer_is_still_a_delivery() -> None:
+    """Получатель ответил 200 — событие у него принято. Обрыв на чтении тела,
+    которое нам не нужно, не должен превращаться в повторную отправку."""
+
+    class BreakingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"x"
+            raise httpx.ReadTimeout("тело оборвалось")
+
+    with respx.mock:
+        respx.post(URL).mock(return_value=httpx.Response(200, stream=BreakingStream()))
+        await HttpWebhookSender().send(URL, PAYLOAD)
