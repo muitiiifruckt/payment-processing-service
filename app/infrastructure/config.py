@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,8 +22,10 @@ class Settings(BaseSettings):
 
     #: Демонстрационный приёмник webhook. Включается только для демо и e2e.
     enable_webhook_sink: bool = False
-    #: succeeded / failed — принудительный исход эмулятора шлюза для демонстрации
-    gateway_force_outcome: str | None = None
+    #: Принудительный исход эмулятора шлюза для демонстрации. Literal, а не
+    #: строка: всё, что не равно succeeded, означало бы отказ по всем платежам,
+    #: и опечатка прошла бы незамеченной до самого демо
+    gateway_force_outcome: Literal["succeeded", "failed"] | None = None
 
 
 # значения приходят из окружения, а не из вызова — mypy об этом не знает
