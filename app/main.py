@@ -4,8 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 from sqlalchemy import text
 
+from app.infrastructure.config import settings
 from app.infrastructure.db.session import dispose
-from app.presentation.api import errors
+from app.presentation.api import errors, sink
 from app.presentation.api.deps import SessionDep
 from app.presentation.api.routes import router
 
@@ -24,6 +25,8 @@ def create_app() -> FastAPI:
     )
     errors.install(app)
     app.include_router(router)
+    if settings.enable_webhook_sink:
+        app.include_router(sink.router)
 
     # Без X-API-Key: иначе ни compose, ни CI не смогут дождаться готовности
     @app.get("/health", include_in_schema=False)
