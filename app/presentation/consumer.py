@@ -8,6 +8,7 @@ from faststream.rabbit import RabbitBroker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.create_payment import PAYMENT_CREATED
+from app.application.notify import WebhookSender
 from app.application.ports import Clock, PaymentGateway
 from app.application.process_payment import PermanentError, process_payment
 from app.application.publish_outbox import relay_forever
@@ -21,6 +22,7 @@ from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import settings
 from app.infrastructure.db.session import dispose, session_factory
 from app.infrastructure.gateway import EmulatedGateway
+from app.infrastructure.webhook import HttpWebhookSender
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ def register_handlers(
     gateway: PaymentGateway,
     clock: Clock,
     sessions: async_sessionmaker[AsyncSession],
+    sender: WebhookSender,
 ) -> None:
     @broker.subscriber(topology.payments_new, topology.payments_exchange)
     async def on_payment_created(
@@ -48,7 +51,14 @@ def register_handlers(
         except ValueError as error:
             raise PermanentError(f"payment_id не разбирается: {raw}") from error
 
-        await process_payment(sessions, payment_id, gateway=gateway, clock=clock)
+        await process_payment(
+            sessions,
+            payment_id,
+            gateway=gateway,
+            clock=clock,
+            sender=sender,
+            event_id=_event_id(event),
+        )
 
 
 def build_app(
@@ -57,8 +67,9 @@ def build_app(
     gateway: PaymentGateway,
     clock: Clock,
     sessions: async_sessionmaker[AsyncSession],
+    sender: WebhookSender,
 ) -> FastStream:
-    register_handlers(broker, gateway=gateway, clock=clock, sessions=sessions)
+    register_handlers(broker, gateway=gateway, clock=clock, sessions=sessions, sender=sender)
 
     app = FastStream(broker)
     relay: list[asyncio.Task[None]] = []
@@ -92,6 +103,7 @@ def create_app() -> FastStream:
         gateway=EmulatedGateway(clock, settings.gateway_force_outcome),
         clock=clock,
         sessions=session_factory(),
+        sender=HttpWebhookSender(),
     )
 
     @app.on_shutdown
@@ -99,3 +111,13 @@ def create_app() -> FastStream:
         await dispose()
 
     return app
+
+
+def _event_id(event: dict[str, Any]) -> UUID:
+    raw = event.get("event_id")
+    if not isinstance(raw, str):
+        raise PermanentError("в событии нет event_id")
+    try:
+        return UUID(raw)
+    except ValueError as error:
+        raise PermanentError(f"event_id не разбирается: {raw}") from error

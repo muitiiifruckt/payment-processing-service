@@ -110,6 +110,16 @@ class PaymentRepository:
         )
         return written is not None
 
+    async def mark_webhook_delivered(self, payment_id: UUID, *, now: datetime) -> None:
+        await self._session.execute(
+            update(PaymentRow)
+            .where(
+                PaymentRow.payment_id == payment_id,
+                PaymentRow.webhook_delivered_at.is_(None),
+            )
+            .values(webhook_delivered_at=now)
+        )
+
     async def release(self, payment_id: UUID, *, claimed_at: datetime) -> None:
         """Снять свой захват. Чужой не трогаем: иначе снимем ограничение
         на число одновременных обращений к шлюзу."""
