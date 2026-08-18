@@ -2,7 +2,11 @@ import logging
 from typing import Any, Protocol
 from uuid import UUID
 
-from app.application.policy import WEBHOOK_FIRST_PASS_ATTEMPTS, webhook_backoff
+from app.application.policy import (
+    WEBHOOK_FIRST_PASS_ATTEMPTS,
+    WEBHOOK_MAX_RETRY_AFTER,
+    webhook_backoff,
+)
 from app.application.ports import Clock
 from app.domain.payment import Payment
 
@@ -57,8 +61,13 @@ async def deliver_webhook(
         except WebhookUnavailableError as error:
             if attempt == attempts:
                 return False
-            # получатель сам назвал срок — он знает о своей загрузке больше
-            delay = error.retry_after if error.retry_after is not None else webhook_backoff(attempt)
+            # получатель сам назвал срок — он знает о своей загрузке больше,
+            # но не настолько, чтобы подвешивать обработчик на произвольное время
+            delay = (
+                min(error.retry_after, WEBHOOK_MAX_RETRY_AFTER)
+                if error.retry_after is not None
+                else webhook_backoff(attempt)
+            )
             await clock.sleep(delay)
         else:
             return True
