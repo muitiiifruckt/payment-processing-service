@@ -109,3 +109,12 @@ async def test_retry_after_within_the_ceiling_is_honoured() -> None:
     await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
 
     assert clock.slept == [7.0]
+
+
+async def test_retry_after_beyond_the_ceiling_is_capped() -> None:
+    sender = Sender(WebhookUnavailableError("429", retry_after=600.0), None)
+    clock = RecordingClock()
+
+    await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
+
+    assert clock.slept == [30.0]
