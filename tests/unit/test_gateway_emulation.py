@@ -1,9 +1,10 @@
+import asyncio
 import os
 import subprocess
 import sys
 from uuid import UUID, uuid4
 
-from app.infrastructure.gateway import duration_for, outcome_for
+from app.infrastructure.gateway import EmulatedGateway, duration_for, outcome_for
 
 MIN_DURATION = 2.0
 MAX_DURATION = 5.0
@@ -67,3 +68,18 @@ def test_outcome_survives_a_restart_of_the_process() -> None:
     }
 
     assert len(runs) == 1
+
+
+class NoWaitClock:
+    def now(self) -> None: ...
+
+    async def sleep(self, seconds: float) -> None: ...
+
+
+def test_forced_outcome_overrides_the_one_derived_from_the_id() -> None:
+    payment_id = next(pid for pid in (uuid4() for _ in range(100)) if outcome_for(pid))
+
+    forced = asyncio.run(EmulatedGateway(NoWaitClock(), "failed").process(payment_id))  # type: ignore[arg-type]
+
+    assert outcome_for(payment_id) is True
+    assert forced is False
