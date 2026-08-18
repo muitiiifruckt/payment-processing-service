@@ -23,6 +23,7 @@ from app.infrastructure.config import settings
 from app.infrastructure.db.session import dispose, session_factory
 from app.infrastructure.gateway import EmulatedGateway
 from app.infrastructure.webhook import HttpWebhookSender, make_client
+from app.presentation.failure_routing import PERMANENT, TRANSIENT, route_failure
 
 log = logging.getLogger(__name__)
 
@@ -39,26 +40,57 @@ def register_handlers(
     async def on_payment_created(
         event: dict[str, Any],
         event_type: str = Context("message.headers.x-event-type", default=""),
+        attempt: int = Context("message.headers.x-attempt", default=0),
     ) -> None:
-        if event_type != PAYMENT_CREATED:
-            raise PermanentError(f"неизвестный тип события: {event_type}")
-
-        raw = event.get("payment_id")
-        if not isinstance(raw, str):
-            raise PermanentError("в событии нет payment_id")
         try:
-            payment_id = UUID(raw)
-        except ValueError as error:
-            raise PermanentError(f"payment_id не разбирается: {raw}") from error
+            await _handle(
+                event,
+                event_type,
+                gateway=gateway,
+                clock=clock,
+                sessions=sessions,
+                sender=sender,
+            )
+        except PermanentError as error:
+            await route_failure(
+                broker, event, attempt=attempt, error=error, kind=PERMANENT, event_type=event_type
+            )
+        except Exception as error:
+            # умолчание в пользу повтора: неучтённая ошибка не должна
+            # стоить сообщения (RFC §6.3)
+            await route_failure(
+                broker, event, attempt=attempt, error=error, kind=TRANSIENT, event_type=event_type
+            )
 
-        await process_payment(
-            sessions,
-            payment_id,
-            gateway=gateway,
-            clock=clock,
-            sender=sender,
-            event_id=_event_id(event),
-        )
+
+async def _handle(
+    event: dict[str, Any],
+    event_type: str,
+    *,
+    gateway: PaymentGateway,
+    clock: Clock,
+    sessions: async_sessionmaker[AsyncSession],
+    sender: WebhookSender,
+) -> None:
+    if event_type != PAYMENT_CREATED:
+        raise PermanentError(f"неизвестный тип события: {event_type}")
+
+    raw = event.get("payment_id")
+    if not isinstance(raw, str):
+        raise PermanentError("в событии нет payment_id")
+    try:
+        payment_id = UUID(raw)
+    except ValueError as error:
+        raise PermanentError(f"payment_id не разбирается: {raw}") from error
+
+    await process_payment(
+        sessions,
+        payment_id,
+        gateway=gateway,
+        clock=clock,
+        sender=sender,
+        event_id=_event_id(event),
+    )
 
 
 def build_app(

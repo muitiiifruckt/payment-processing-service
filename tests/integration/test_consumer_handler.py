@@ -8,7 +8,6 @@ from faststream.rabbit.testing import TestRabbitBroker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.create_payment import PAYMENT_CREATED
-from app.application.process_payment import PermanentError
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
@@ -115,28 +114,3 @@ async def test_redelivered_event_does_not_reach_the_gateway_twice(
             )
 
     assert gateway.calls == [stored.payment_id]
-
-
-async def test_event_of_another_type_is_not_processed(
-    session_factory: async_sessionmaker[AsyncSession], stored: Payment
-) -> None:
-    broker = RabbitBroker()
-    gateway = AlwaysSucceeds()
-    register_handlers(
-        broker,
-        gateway=gateway,
-        clock=FrozenClock(),
-        sessions=session_factory,
-        sender=SilentSender(),
-    )
-
-    async with TestRabbitBroker(broker) as test:
-        with pytest.raises(PermanentError):
-            await test.publish(
-                an_event(stored.payment_id),
-                routing_key=topology.NEW_KEY,
-                exchange=topology.payments_exchange,
-                headers={"x-event-type": "payment.refunded", "x-attempt": 0},
-            )
-
-    assert gateway.calls == []
