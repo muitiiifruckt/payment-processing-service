@@ -48,7 +48,7 @@ async def process_payment(
     payment.processed_at = clock.now()
 
     async with sessions() as session, session.begin():
-        if not await PaymentRepository(session).save_result(payment):
+        if not await PaymentRepository(session).save_result(payment, claimed_at=now):
             # пока мы ходили в шлюз, результат записал другой прогон.
             # Исход детерминирован по payment_id, так что расхождения нет
             log.info("результат по платежу %s уже записан", payment_id)

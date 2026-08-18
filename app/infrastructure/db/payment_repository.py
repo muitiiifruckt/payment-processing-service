@@ -86,7 +86,7 @@ class PaymentRepository:
         )
         return await self._session.scalar(statement) is not None
 
-    async def save_result(self, payment: Payment) -> bool:
+    async def save_result(self, payment: Payment, *, claimed_at: datetime) -> bool:
         """Записать исход. False — платёж уже терминален, наш результат лишний.
 
         Обработчик обязан проверить возврат: при протухшем захвате к шлюзу мог
