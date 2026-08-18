@@ -14,6 +14,9 @@ async def broker(rabbitmq_url: str) -> AsyncIterator[RabbitBroker]:
     broker = make_broker(rabbitmq_url)
     await broker.connect()
     await declare_topology(broker)
+    # очередь durable и общая на всю сессию: не вычистив её, тест видит
+    # сообщение соседа и порядок прогона начинает влиять на результат
+    await (await broker.declare_queue(topology.payments_new)).purge()
     yield broker
     await broker.stop()
 
@@ -59,9 +62,7 @@ async def test_message_carries_the_event_type_and_zero_attempt(
     assert message.headers["x-attempt"] == 0
 
 
-async def test_published_event_survives_a_broker_restart(
-    broker: RabbitBroker, rabbitmq_url: str
-) -> None:
+async def test_published_event_is_written_to_disk(broker: RabbitBroker, rabbitmq_url: str) -> None:
     event_id = uuid4()
     await publish_event(broker, event_id)
 

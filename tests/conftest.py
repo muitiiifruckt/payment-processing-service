@@ -50,7 +50,7 @@ def rabbitmq_url() -> Iterator[str]:
         yield external
         return
 
-    from testcontainers.rabbitmq import RabbitMqContainer
+    from testcontainers.community.rabbitmq import RabbitMqContainer
 
     with RabbitMqContainer("rabbitmq:4-alpine") as container:
         yield (
