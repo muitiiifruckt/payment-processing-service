@@ -30,3 +30,21 @@ async def test_successful_answers_do_not_raise(status: int) -> None:
     with respx.mock:
         respx.post(URL).mock(return_value=httpx.Response(status))
         await HttpWebhookSender().send(URL, PAYLOAD)
+
+
+async def test_retry_after_is_read_from_the_answer() -> None:
+    with respx.mock:
+        respx.post(URL).mock(return_value=httpx.Response(429, headers={"Retry-After": "12"}))
+        with pytest.raises(WebhookUnavailableError) as error:
+            await HttpWebhookSender().send(URL, PAYLOAD)
+
+    assert error.value.retry_after == 12.0
+
+
+async def test_unparseable_retry_after_falls_back_to_our_own_delay() -> None:
+    with respx.mock:
+        respx.post(URL).mock(return_value=httpx.Response(429, headers={"Retry-After": "soon"}))
+        with pytest.raises(WebhookUnavailableError) as error:
+            await HttpWebhookSender().send(URL, PAYLOAD)
+
+    assert error.value.retry_after is None
