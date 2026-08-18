@@ -7,8 +7,11 @@ import httpx
 import pytest
 
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost:8000")
-API_KEY = os.getenv("API_KEY", "local-dev-key")
-SINK_URL = f"{BASE_URL}/__sink__/webhook"
+# отдельная переменная: API_KEY в окружении прогона принадлежит тестовому
+# приложению, а сквозной тест стучится в поднятое compose'ом
+API_KEY = os.getenv("E2E_API_KEY", "local-dev-key")
+# адрес, по которому приёмник видит consumer, а не мы с хоста
+SINK_URL = os.getenv("E2E_SINK_URL", "http://api:8000/__sink__/webhook")
 TERMINAL = {"succeeded", "failed"}
 
 

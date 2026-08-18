@@ -43,7 +43,7 @@ curl -X POST http://localhost:8000/api/v1/payments   -H "X-API-Key: local-dev-ke
   "metadata": {
     "order_id": "42"
   },
-  "webhook_url": "http://localhost:8000/__sink__/webhook"
+  "webhook_url": "http://api:8000/__sink__/webhook"
 }'
 ```
 
@@ -73,7 +73,7 @@ curl http://localhost:8000/api/v1/payments/0192f3a4-0000-7000-8000-000000000001 
   "description": "Оплата заказа 42",
   "metadata": {"order_id": "42"},
   "status": "succeeded",
-  "webhook_url": "http://localhost:8000/__sink__/webhook",
+  "webhook_url": "http://api:8000/__sink__/webhook",
   "created_at": "2026-08-19T12:00:00+00:00",
   "processed_at": "2026-08-19T12:00:04+00:00"
 }
@@ -121,7 +121,9 @@ curl http://localhost:8000/api/v1/payments/0192f3a4-0000-7000-8000-000000000001 
 ## Демонстрационный приёмник webhook
 
 При `ENABLE_WEBHOOK_SINK=true` в `api` включается приёмник на `/__sink__/webhook`: `POST`
-складывает событие в память, `GET` показывает последние сто. В публичную схему он не
+складывает событие в память, `GET` показывает последние сто. В `webhook_url` его нужно
+указывать так, как его видит `consumer` — `http://api:8000/__sink__/webhook`: `localhost`
+внутри сети compose означает сам `consumer`. В публичную схему он не
 попадает и нужен только для демонстрации и сквозных тестов.
 
 ## Тесты

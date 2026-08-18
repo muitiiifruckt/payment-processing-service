@@ -12,7 +12,7 @@ dependencies = [
     "alembic>=1.14",
     # 0.7 удалил retry/no_ack/ack_first и переключил очереди на durable по умолчанию —
     # пин обязателен, код написан под этот API
-    "faststream[rabbit]>=0.7,<0.8",
+    "faststream[cli,rabbit]>=0.7,<0.8",
     "httpx>=0.28",
     "uvicorn[standard]>=0.32",
 ]
