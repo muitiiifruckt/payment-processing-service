@@ -89,3 +89,14 @@ async def test_redelivery_makes_a_single_attempt() -> None:
     assert delivered is False
     assert len(sender.calls) == 1
     assert clock.slept == []
+
+
+async def test_rejected_payload_is_not_retried() -> None:
+    sender = Sender(WebhookRejectedError("400"))
+    clock = RecordingClock()
+
+    delivered = await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
+
+    assert delivered is False
+    assert len(sender.calls) == 1
+    assert clock.slept == []
