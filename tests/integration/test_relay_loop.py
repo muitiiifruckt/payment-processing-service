@@ -143,9 +143,15 @@ async def test_published_rows_are_kept_not_deleted(
     assert row.published_at is not None
 
 
-async def test_broker_connects_lazily_when_rabbit_is_unavailable() -> None:
+async def test_broker_keeps_reconnecting_instead_of_dying_when_rabbit_is_unavailable() -> None:
     broker = make_broker(DEAD_BROKER)
+    connecting = asyncio.create_task(broker.connect())
     try:
-        await asyncio.wait_for(broker.connect(), timeout=10)
+        done, _ = await asyncio.wait({connecting}, timeout=3)
+        # подключение не удалось и не удастся, но это попытки, а не отказ:
+        # процесс consumer'а обязан пережить недоступный брокер
+        assert not done
     finally:
+        connecting.cancel()
+        await asyncio.gather(connecting, return_exceptions=True)
         await broker.stop()
