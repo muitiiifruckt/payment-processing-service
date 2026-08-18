@@ -24,8 +24,12 @@ class HttpWebhookSender:
 
     async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> None:
         response = await client.post(url, json=payload)
-        if response.status_code < 400:
+        if response.status_code < 300:
             return
+        if response.is_redirect:
+            # переадресация не выполняется: адрес задан клиентом, и уход
+            # на чужой хост по чужому же указанию — не доставка
+            raise WebhookRejectedError(f"переадресация {response.status_code} не выполняется")
         if response.status_code >= 500 or response.status_code in RETRYABLE_CLIENT_ERRORS:
             raise WebhookUnavailableError(
                 f"получатель ответил {response.status_code}",
