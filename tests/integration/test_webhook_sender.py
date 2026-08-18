@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 import httpx
 import pytest
 import respx
@@ -71,3 +73,29 @@ async def test_timeout_is_a_temporary_failure() -> None:
         respx.post(URL).mock(side_effect=httpx.ConnectTimeout("timed out"))
         with pytest.raises(WebhookUnavailableError):
             await HttpWebhookSender().send(URL, PAYLOAD)
+
+
+class CountingStream(httpx.AsyncByteStream):
+    """Считает, сколько байт у неё забрали: тело получателя нам не нужно,
+    и вычитывать его целиком — подставляться под ответ произвольного размера."""
+
+    def __init__(self, chunk: bytes, chunks: int) -> None:
+        self._chunk = chunk
+        self._chunks = chunks
+        self.given = 0
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for _ in range(self._chunks):
+            self.given += len(self._chunk)
+            yield self._chunk
+
+
+async def test_an_oversized_answer_is_not_read_whole() -> None:
+    limit = settings.webhook_max_response_bytes
+    stream = CountingStream(b"x" * 8192, chunks=limit // 8192 * 4)
+
+    with respx.mock:
+        respx.post(URL).mock(return_value=httpx.Response(200, stream=stream))
+        await HttpWebhookSender().send(URL, PAYLOAD)
+
+    assert stream.given <= limit + 8192
