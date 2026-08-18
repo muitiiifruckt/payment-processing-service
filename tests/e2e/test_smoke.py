@@ -92,3 +92,30 @@ async def test_the_schema_was_created_automatically(client: httpx.AsyncClient) -
 
     assert response.status_code == 200
     assert response.json()["database"] == "ok"
+
+
+async def test_a_payment_with_an_unreachable_webhook_keeps_its_terminal_status(
+    client: httpx.AsyncClient,
+) -> None:
+    """Недостижимый получатель исчерпывает повторы и уводит сообщение в DLQ,
+    но исход платежа уже записан и остаётся неизменным."""
+    created = await create(client, webhook_url="http://nowhere.invalid:9/hook")
+    payment_id = created["payment_id"]
+
+    async def settled() -> dict[str, Any] | None:
+        payment = (
+            await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
+        ).json()
+        return payment if payment["status"] in TERMINAL else None
+
+    payment = await until(settled)
+    status = payment["status"]
+
+    # лестница повторов — 2 + 4 + 8 секунд, после неё сообщение в DLQ
+    await asyncio.sleep(20)
+    again = (
+        await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
+    ).json()
+
+    assert again["status"] == status
+    assert again["processed_at"] == payment["processed_at"]
