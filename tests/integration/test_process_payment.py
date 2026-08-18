@@ -31,6 +31,16 @@ class FrozenClock:
         self._now += timedelta(seconds=seconds)
 
 
+class SilentSender:
+    """Ничего не отправляет: у платежей в этих тестах нет webhook_url."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def send(self, url: str, payload: dict[str, object]) -> None:
+        self.calls.append((url, payload))
+
+
 class AlwaysSucceeds:
     def __init__(self) -> None:
         self.calls: list[UUID] = []
@@ -71,6 +81,26 @@ async def stored(session_factory: async_sessionmaker[AsyncSession]) -> Payment:
     return payment
 
 
+async def run(
+    sessions: async_sessionmaker[AsyncSession],
+    payment_id: UUID,
+    *,
+    gateway: object,
+    clock: object,
+    sender: object | None = None,
+    event_id: UUID | None = None,
+) -> None:
+    """Отправитель и идентификатор события в большинстве сценариев неважны."""
+    await process_payment(
+        sessions,  # type: ignore[arg-type]
+        payment_id,
+        gateway=gateway,  # type: ignore[arg-type]
+        clock=clock,  # type: ignore[arg-type]
+        sender=sender or SilentSender(),  # type: ignore[arg-type]
+        event_id=event_id or uuid4(),
+    )
+
+
 async def reload(sessions: async_sessionmaker[AsyncSession], payment_id: UUID) -> Payment:
     async with sessions() as session:
         found = await PaymentRepository(session).get(payment_id)
@@ -83,7 +113,7 @@ async def test_successful_processing_moves_the_payment_to_succeeded(
 ) -> None:
     clock = FrozenClock()
 
-    await process_payment(session_factory, stored.payment_id, gateway=AlwaysSucceeds(), clock=clock)
+    await run(session_factory, stored.payment_id, gateway=AlwaysSucceeds(), clock=clock)
 
     after = await reload(session_factory, stored.payment_id)
     assert after.status is PaymentStatus.SUCCEEDED
@@ -93,9 +123,7 @@ async def test_successful_processing_moves_the_payment_to_succeeded(
 async def test_declined_payment_moves_to_failed(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    await process_payment(
-        session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock()
-    )
+    await run(session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock())
 
     after = await reload(session_factory, stored.payment_id)
     assert after.status is PaymentStatus.FAILED
@@ -107,8 +135,8 @@ async def test_redelivery_does_not_call_the_gateway_again(
 ) -> None:
     gateway = AlwaysSucceeds()
 
-    await process_payment(session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock())
-    await process_payment(session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock())
+    await run(session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock())
+    await run(session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock())
 
     assert gateway.calls == [stored.payment_id]
 
@@ -116,13 +144,9 @@ async def test_redelivery_does_not_call_the_gateway_again(
 async def test_redelivery_keeps_the_terminal_status(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    await process_payment(
-        session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock()
-    )
+    await run(session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock())
 
-    await process_payment(
-        session_factory, stored.payment_id, gateway=AlwaysSucceeds(), clock=FrozenClock()
-    )
+    await run(session_factory, stored.payment_id, gateway=AlwaysSucceeds(), clock=FrozenClock())
 
     after = await reload(session_factory, stored.payment_id)
     assert after.status is PaymentStatus.FAILED
@@ -132,7 +156,7 @@ async def test_unavailable_gateway_leaves_the_payment_pending_and_asks_for_a_ret
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
     with pytest.raises(TransientError):
-        await process_payment(
+        await run(
             session_factory,
             stored.payment_id,
             gateway=AlwaysUnavailable(),
@@ -148,7 +172,7 @@ async def test_unavailable_gateway_releases_the_claim(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
     with pytest.raises(TransientError):
-        await process_payment(
+        await run(
             session_factory,
             stored.payment_id,
             gateway=AlwaysUnavailable(),
@@ -168,9 +192,7 @@ async def test_payment_held_by_another_worker_goes_to_a_retry(
 
     gateway = AlwaysSucceeds()
     with pytest.raises(TransientError):
-        await process_payment(
-            session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock()
-        )
+        await run(session_factory, stored.payment_id, gateway=gateway, clock=FrozenClock())
 
     assert gateway.calls == []
 
@@ -179,9 +201,7 @@ async def test_event_about_an_unknown_payment_is_permanent(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     with pytest.raises(PermanentError):
-        await process_payment(
-            session_factory, uuid4(), gateway=AlwaysSucceeds(), clock=FrozenClock()
-        )
+        await run(session_factory, uuid4(), gateway=AlwaysSucceeds(), clock=FrozenClock())
 
 
 async def test_database_is_not_held_while_the_gateway_is_called(
@@ -199,9 +219,7 @@ async def test_database_is_not_held_while_the_gateway_is_called(
             assert other is not None
             return True
 
-    await process_payment(
-        session_factory, stored.payment_id, gateway=ObservingGateway(), clock=FrozenClock()
-    )
+    await run(session_factory, stored.payment_id, gateway=ObservingGateway(), clock=FrozenClock())
 
     assert seen == [None]
 
@@ -211,9 +229,7 @@ async def test_declined_payment_is_treated_as_handled_and_not_retried(
 ) -> None:
     """Бизнес-отказ — это результат, а не сбой: исключения нет, значит
     сообщение подтверждается и в DLQ не уезжает."""
-    await process_payment(
-        session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock()
-    )
+    await run(session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock())
 
     after = await reload(session_factory, stored.payment_id)
     assert after.status is PaymentStatus.FAILED
@@ -237,7 +253,7 @@ async def test_a_failing_release_does_not_hide_the_gateway_error(
             return session_factory()
 
     with pytest.raises(TransientError):
-        await process_payment(
+        await run(
             BreaksAfterTheClaim(),  # type: ignore[arg-type]
             stored.payment_id,
             gateway=AlwaysUnavailable(),

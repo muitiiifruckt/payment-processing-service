@@ -30,6 +30,10 @@ class FrozenClock:
         self._now += timedelta(seconds=seconds)
 
 
+class SilentSender:
+    async def send(self, url: str, payload: dict[str, object]) -> None: ...
+
+
 class AlwaysSucceeds:
     def __init__(self) -> None:
         self.calls: list[UUID] = []
@@ -63,7 +67,13 @@ async def test_event_from_the_queue_processes_the_payment(
 ) -> None:
     broker = RabbitBroker()
     gateway = AlwaysSucceeds()
-    register_handlers(broker, gateway=gateway, clock=FrozenClock(), sessions=session_factory)
+    register_handlers(
+        broker,
+        gateway=gateway,
+        clock=FrozenClock(),
+        sessions=session_factory,
+        sender=SilentSender(),
+    )
 
     async with TestRabbitBroker(broker) as test:
         await test.publish(
@@ -86,7 +96,13 @@ async def test_redelivered_event_does_not_reach_the_gateway_twice(
 ) -> None:
     broker = RabbitBroker()
     gateway = AlwaysSucceeds()
-    register_handlers(broker, gateway=gateway, clock=FrozenClock(), sessions=session_factory)
+    register_handlers(
+        broker,
+        gateway=gateway,
+        clock=FrozenClock(),
+        sessions=session_factory,
+        sender=SilentSender(),
+    )
     event = an_event(stored.payment_id)
 
     async with TestRabbitBroker(broker) as test:
@@ -106,7 +122,13 @@ async def test_event_of_another_type_is_not_processed(
 ) -> None:
     broker = RabbitBroker()
     gateway = AlwaysSucceeds()
-    register_handlers(broker, gateway=gateway, clock=FrozenClock(), sessions=session_factory)
+    register_handlers(
+        broker,
+        gateway=gateway,
+        clock=FrozenClock(),
+        sessions=session_factory,
+        sender=SilentSender(),
+    )
 
     async with TestRabbitBroker(broker) as test:
         with pytest.raises(PermanentError):
