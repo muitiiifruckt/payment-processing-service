@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,13 @@ class Settings(BaseSettings):
     #: строка: всё, что не равно succeeded, означало бы отказ по всем платежам,
     #: и опечатка прошла бы незамеченной до самого демо
     gateway_force_outcome: Literal["succeeded", "failed"] | None = None
+
+    @field_validator("gateway_force_outcome", mode="before")
+    @classmethod
+    def _blank_is_absent(cls, value: object) -> object:
+        # compose подставляет пустую строку для незаданной переменной,
+        # а пустая строка — не «succeeded» и не «failed»
+        return None if value == "" else value
 
 
 # значения приходят из окружения, а не из вызова — mypy об этом не знает
