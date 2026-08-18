@@ -38,10 +38,10 @@ async def process_payment(
         # соединение с БД должно быть свободно
         succeeded = await gateway.process(payment_id)
     except GatewayUnavailableError as error:
-        await _release(sessions, payment_id, claimed_at=now)
+        await _release_quietly(sessions, payment_id, claimed_at=now)
         raise TransientError(str(error)) from error
     except Exception as error:
-        await _release(sessions, payment_id, claimed_at=now)
+        await _release_quietly(sessions, payment_id, claimed_at=now)
         raise TransientError(f"шлюз: {type(error).__name__}: {error}") from error
 
     payment.status = PaymentStatus.SUCCEEDED if succeeded else PaymentStatus.FAILED
@@ -70,10 +70,16 @@ async def _take(
         return payment
 
 
-async def _release(
+async def _release_quietly(
     sessions: async_sessionmaker[AsyncSession], payment_id: UUID, *, claimed_at: datetime
 ) -> None:
     """Снять захват, не дожидаясь протухания: иначе повтор через 2 секунды
-    упрётся в собственную же метку и уйдёт в следующий."""
-    async with sessions() as session, session.begin():
-        await PaymentRepository(session).release(payment_id, claimed_at=claimed_at)
+    упрётся в собственную же метку и уйдёт в следующий.
+
+    Своя ошибка проглатывается: БД и шлюз отваливаются вместе, а подменять
+    ею причину отказа нельзя — захват в худшем случае протухнет сам."""
+    try:
+        async with sessions() as session, session.begin():
+            await PaymentRepository(session).release(payment_id, claimed_at=claimed_at)
+    except Exception:
+        log.warning("не удалось снять захват платежа %s", payment_id, exc_info=True)
