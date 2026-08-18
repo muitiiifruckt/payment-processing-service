@@ -12,7 +12,9 @@ CREATE_REQUEST: dict[str, Any] = {
     "currency": "RUB",
     "description": "Оплата заказа 42",
     "metadata": {"order_id": "42"},
-    "webhook_url": "http://localhost:8000/__sink__/webhook",
+    # адрес глазами consumer'а: внутри сети compose api зовётся api,
+    # а localhost для него — он сам
+    "webhook_url": "http://api:8000/__sink__/webhook",
 }
 
 
