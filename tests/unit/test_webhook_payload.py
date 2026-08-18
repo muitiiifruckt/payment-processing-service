@@ -37,4 +37,3 @@ def test_payload_carries_the_agreed_fields() -> None:
         "currency": "RUB",
         "processed_at": "2026-01-01T12:00:05+00:00",
     }
-

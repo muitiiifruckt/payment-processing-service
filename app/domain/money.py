@@ -7,6 +7,8 @@ from app.domain.errors import InvalidAmountError
 #: Совпадает с numeric(20, 4) в таблице
 MAX_SCALE = 4
 MAX_AMOUNT = Decimal(10) ** 16
+#: Наружу деньги всегда строкой и не короче двух знаков
+OUTPUT_SCALE = Decimal("0.01")
 
 
 class Currency(StrEnum):
@@ -33,3 +35,15 @@ class Money:
             raise InvalidAmountError(f"не более {MAX_SCALE} знаков после запятой: {self.amount}")
         if self.amount >= MAX_AMOUNT:
             raise InvalidAmountError(f"сумма должна быть меньше {MAX_AMOUNT}: {self.amount}")
+
+    @property
+    def formatted(self) -> str:
+        """Представление для API и webhook."""
+        # numeric(20,4) возвращает масштаб колонки, поэтому сначала снимаем
+        # незначащие нули, и только потом добиваем до двух знаков. Обратный
+        # порядок округлял бы 1.005 до 1.00 — сумма, которой в базе нет
+        trimmed = self.amount.normalize()
+        exponent = trimmed.as_tuple().exponent
+        if not isinstance(exponent, int) or exponent > -2:
+            trimmed = trimmed.quantize(OUTPUT_SCALE)
+        return format(trimmed, "f")
