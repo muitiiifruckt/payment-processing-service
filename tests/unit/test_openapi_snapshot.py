@@ -1,7 +1,9 @@
-import importlib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,36 +20,46 @@ ENV_OVERRIDES = {
     "WEBHOOK_TIMEOUT_SECONDS": "5.0",
     "WEBHOOK_MAX_RESPONSE_BYTES": "65536",
     "ENABLE_WEBHOOK_SINK": "true",
+    "GATEWAY_FORCE_OUTCOME": "",
 }
 
-# Порядок важен: settings читаются на импорте модулей ниже по цепочке.
-RELOAD_MODULES = (
-    "app.infrastructure.config",
-    "app.presentation.api.schemas",
-    "app.presentation.api.deps",
-    "app.presentation.api.errors",
-    "app.presentation.api.routes",
-    "app.main",
-)
+# Отдельный процесс, а не importlib.reload: перезагрузка модулей подменяет
+# settings и зависимости на весь прогон, и соседние тесты начинают ходить
+# в другое приложение.
+SCRIPT = "import json;from app.main import create_app;print(json.dumps(create_app().openapi()))"
 
 
 @pytest.fixture
-def openapi_schema(monkeypatch: pytest.MonkeyPatch) -> dict:
-    for key, value in ENV_OVERRIDES.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.delenv("GATEWAY_FORCE_OUTCOME", raising=False)
+def openapi_schema() -> dict[str, Any]:
+    result = subprocess.run(
+        [sys.executable, "-c", SCRIPT],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, **ENV_OVERRIDES},
+        check=True,
+    )
+    schema: dict[str, Any] = json.loads(result.stdout)
+    return schema
 
-    modules = [importlib.reload(importlib.import_module(name)) for name in RELOAD_MODULES]
-    main_module = modules[-1]
-    return main_module.create_app().openapi()
+
+def normalize(schema: dict[str, Any]) -> dict[str, Any]:
+    """Формулировки стандартных статусов приходят из stdlib и меняются
+    от версии Python — контракт от этого не меняется."""
+    for operations in schema.get("paths", {}).values():
+        for operation in operations.values():
+            for code, response in operation.get("responses", {}).items():
+                if code != "200":
+                    response.pop("description", None)
+    return schema
 
 
-def _dump(schema: dict) -> str:
-    return json.dumps(schema, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+def dump(schema: dict[str, Any]) -> str:
+    return json.dumps(normalize(schema), sort_keys=True, indent=2, ensure_ascii=False) + "\n"
 
 
-def test_openapi_matches_snapshot(openapi_schema: dict) -> None:
-    actual = _dump(openapi_schema)
+def test_openapi_matches_snapshot(openapi_schema: dict[str, Any]) -> None:
+    actual = dump(openapi_schema)
 
     if os.getenv("UPDATE_SNAPSHOTS"):
         SNAPSHOT_PATH.write_text(actual, encoding="utf-8")
@@ -61,3 +73,7 @@ def test_openapi_matches_snapshot(openapi_schema: dict) -> None:
         "OpenAPI-контракт изменился. Если это осознанно — обновите эталон:\n"
         "UPDATE_SNAPSHOTS=1 uv run pytest tests/unit/test_openapi_snapshot.py"
     )
+
+
+def test_the_demo_sink_is_absent_from_the_public_schema(openapi_schema: dict[str, Any]) -> None:
+    assert not [path for path in openapi_schema["paths"] if "sink" in path]
