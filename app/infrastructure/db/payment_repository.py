@@ -87,16 +87,19 @@ class PaymentRepository:
         return await self._session.scalar(statement) is not None
 
     async def save_result(self, payment: Payment, *, claimed_at: datetime) -> bool:
-        """Записать исход. False — платёж уже терминален, наш результат лишний.
+        """Записать исход своего захвата. False — писать было нечего.
 
-        Обработчик обязан проверить возврат: при протухшем захвате к шлюзу мог
-        сходить второй прогон, и молчаливый no-op не отличить от успеха.
+        Сверка с locked_at обязательна: при протухшем захвате платёж уже мог
+        взять другой обработчик, и запись без сверки сняла бы его захват.
+        Обработчик обязан проверить возврат — молчаливый no-op не отличить
+        от успеха.
         """
         written = await self._session.scalar(
             update(PaymentRow)
             .where(
                 PaymentRow.payment_id == payment.payment_id,
                 PaymentRow.status == PaymentStatus.PENDING.value,
+                PaymentRow.locked_at == claimed_at,
             )
             .values(
                 status=payment.status.value,
