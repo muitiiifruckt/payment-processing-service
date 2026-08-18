@@ -66,7 +66,7 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    command: faststream run app.consumer:app
+    command: faststream run app.presentation.consumer:create_app --factory
     stop_grace_period: 30s
 
 volumes:
