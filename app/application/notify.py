@@ -1,6 +1,7 @@
 from typing import Any, Protocol
 from uuid import UUID
 
+from app.application.policy import WEBHOOK_FIRST_PASS_ATTEMPTS, webhook_backoff
 from app.application.ports import Clock
 from app.domain.payment import Payment
 
@@ -39,6 +40,17 @@ async def deliver_webhook(
     event_id: UUID,
     sender: WebhookSender,
     clock: Clock,
-    attempts: int = 1,
+    attempts: int = WEBHOOK_FIRST_PASS_ATTEMPTS,
 ) -> bool:
+    payload = webhook_payload(payment, event_id=event_id)
+    assert payment.webhook_url is not None
+    for attempt in range(1, attempts + 1):
+        try:
+            await sender.send(payment.webhook_url, payload)
+        except WebhookUnavailableError:
+            if attempt == attempts:
+                return False
+            await clock.sleep(webhook_backoff(attempt))
+        else:
+            return True
     return False
