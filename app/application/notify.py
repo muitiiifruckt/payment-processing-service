@@ -68,7 +68,9 @@ async def deliver_webhook(
             return False
         except WebhookUnavailableError as error:
             if attempt == attempts:
-                return False
+                raise WebhookNotDeliveredError(
+                    f"получатель не подтвердил за {attempts} попыт(ку/ки/ок): {error}"
+                ) from error
             # получатель сам назвал срок — он знает о своей загрузке больше,
             # но не настолько, чтобы подвешивать обработчик на произвольное время
             delay = (
@@ -79,4 +81,4 @@ async def deliver_webhook(
             await clock.sleep(delay)
         else:
             return True
-    return False
+    raise WebhookNotDeliveredError(f"получатель не подтвердил за {attempts} попыт(ку/ки/ок)")

@@ -4,7 +4,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.notify import WebhookSender, deliver_webhook
+from app.application.notify import (
+    WebhookNotDeliveredError,
+    WebhookSender,
+    deliver_webhook,
+)
 from app.application.policy import CLAIM_LEASE, WEBHOOK_FIRST_PASS_ATTEMPTS
 from app.application.ports import Clock, GatewayUnavailableError, PaymentGateway
 from app.domain.payment import TERMINAL_STATUSES, Payment
@@ -117,10 +121,17 @@ async def _notify(
     без неё повтор ушёл бы второй раз, с ней раньше времени — не ушёл бы вовсе."""
     if not payment.needs_webhook:
         return
-    delivered = await deliver_webhook(
-        payment, event_id=event_id, sender=sender, clock=clock, attempts=attempts
-    )
+    try:
+        delivered = await deliver_webhook(
+            payment, event_id=event_id, sender=sender, clock=clock, attempts=attempts
+        )
+    except WebhookNotDeliveredError as error:
+        # RFC §6.2: исчерпание попыток — временный отказ обработки,
+        # сообщение уходит в повтор и добьёт webhook на следующем прогоне
+        raise TransientError(str(error)) from error
     if not delivered:
+        # получатель отверг тело: повторять нечего, платёж обработан
+        log.warning("получатель отверг webhook по платежу %s", payment.payment_id)
         return
     async with sessions() as session, session.begin():
         await PaymentRepository(session).mark_webhook_delivered(payment.payment_id, now=clock.now())
