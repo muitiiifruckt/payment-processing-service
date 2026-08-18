@@ -204,3 +204,16 @@ async def test_database_is_not_held_while_the_gateway_is_called(
     )
 
     assert seen == [None]
+
+
+async def test_declined_payment_is_treated_as_handled_and_not_retried(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Бизнес-отказ — это результат, а не сбой: исключения нет, значит
+    сообщение подтверждается и в DLQ не уезжает."""
+    await process_payment(
+        session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock()
+    )
+
+    after = await reload(session_factory, stored.payment_id)
+    assert after.status is PaymentStatus.FAILED
