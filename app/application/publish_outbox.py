@@ -38,10 +38,15 @@ async def publish_pending(
     outbox = OutboxRepository(session)
     events = await outbox.claim_batch(now=now, limit=batch)
 
-    deadline = asyncio.get_running_loop().time() + budget
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + budget
     published = 0
     for index, event in enumerate(events):
-        if asyncio.get_running_loop().time() >= deadline:
+        # остаток бюджета, а не полный таймаут: иначе последняя публикация
+        # растягивает тик до budget + timeout, всё это время держа пачку
+        # захваченной FOR UPDATE
+        remaining = min(timeout, deadline - loop.time())
+        if remaining <= 0:
             # незатронутые события просто не помечены: блокировка отпустится
             # с транзакцией, следующий тик заберёт их снова
             log.warning("тик relay прерван по бюджету, осталось событий: %d", len(events) - index)
@@ -49,7 +54,7 @@ async def publish_pending(
         try:
             await asyncio.wait_for(
                 publisher.publish(event.event_id, event.event_type, event.payload),
-                timeout=timeout,
+                timeout=remaining,
             )
         except Exception as error:
             delay = outbox_backoff(event.attempts)
@@ -83,7 +88,10 @@ async def relay_forever(
         published = 0
         try:
             async with sessions() as session, session.begin():
-                published = await publish_pending(session, publisher, clock)
+                tick = await publish_pending(session, publisher, clock)
+            # только после коммита: упавшая фиксация означает, что не ушло
+            # ничего, и следующий тик должен начаться с обычной паузы
+            published = tick
         except asyncio.CancelledError:
             raise
         except Exception:
