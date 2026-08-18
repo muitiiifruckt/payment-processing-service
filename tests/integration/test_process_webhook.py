@@ -121,3 +121,51 @@ async def test_redelivery_after_a_failed_webhook_retries_only_the_webhook(
 
     assert len(second.calls) == 1  # повторный прогон: одна попытка
     assert (await reload(session_factory, with_hook.payment_id)).webhook_delivered_at is not None
+
+
+async def test_redelivery_for_a_payment_without_a_hook_does_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    payment_id = uuid4()
+    payment = Payment(
+        payment_id=payment_id,
+        amount=Money(Decimal("100.00"), Currency.RUB),
+        created_at=NOW,
+        idempotency_key=str(payment_id),
+        request_hash="0" * 64,
+    )
+    async with session_factory() as session, session.begin():
+        await PaymentRepository(session).add_if_absent(payment)
+
+    await run(session_factory, payment_id, RecordingSender())
+    second = RecordingSender()
+    await run(session_factory, payment_id, second)
+
+    assert second.calls == []
+    assert (await reload(session_factory, payment_id)).status is PaymentStatus.SUCCEEDED
+
+
+async def test_database_is_not_held_while_the_receiver_is_called(
+    session_factory: async_sessionmaker[AsyncSession], with_hook: Payment
+) -> None:
+    seen: list[PaymentStatus] = []
+
+    class ObservingSender:
+        async def send(self, url: str, payload: dict[str, Any]) -> None:
+            # исход уже зафиксирован и виден снаружи — значит транзакция
+            # закрыта до обращения к получателю, а не держится на всё время
+            async with session_factory() as session:
+                other = await PaymentRepository(session).get(with_hook.payment_id)
+            assert other is not None
+            seen.append(other.status)
+
+    await process_payment(
+        session_factory,
+        with_hook.payment_id,
+        gateway=AlwaysSucceeds(),
+        clock=FrozenClock(),
+        sender=ObservingSender(),
+        event_id=uuid4(),
+    )
+
+    assert seen == [PaymentStatus.SUCCEEDED]
