@@ -35,7 +35,10 @@ class WebhookSender(Protocol):
 
 
 def webhook_payload(payment: Payment, *, event_id: UUID) -> dict[str, Any]:
-    assert payment.processed_at is not None  # webhook уходит только по обработанному
+    if payment.processed_at is None:
+        # не assert: под -O проверка исчезнет, и вместо внятной ошибки
+        # получится AttributeError на None
+        raise ValueError(f"платёж {payment.payment_id} ещё не обработан")
     return {
         "event_id": str(event_id),
         "payment_id": str(payment.payment_id),

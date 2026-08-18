@@ -22,7 +22,7 @@ from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import settings
 from app.infrastructure.db.session import dispose, session_factory
 from app.infrastructure.gateway import EmulatedGateway
-from app.infrastructure.webhook import HttpWebhookSender
+from app.infrastructure.webhook import HttpWebhookSender, make_client
 
 log = logging.getLogger(__name__)
 
@@ -98,16 +98,20 @@ def create_app() -> FastStream:
     Запуск: faststream run app.presentation.consumer:create_app --factory
     """
     clock = SystemClock()
+    # один клиент на процесс: соединения к получателю переиспользуются,
+    # а не переустанавливаются на каждую из трёх попыток
+    client = make_client()
     app = build_app(
         make_broker(),
         gateway=EmulatedGateway(clock, settings.gateway_force_outcome),
         clock=clock,
         sessions=session_factory(),
-        sender=HttpWebhookSender(),
+        sender=HttpWebhookSender(client),
     )
 
     @app.on_shutdown
-    async def close_database() -> None:
+    async def close_resources() -> None:
+        await client.aclose()
         await dispose()
 
     return app
