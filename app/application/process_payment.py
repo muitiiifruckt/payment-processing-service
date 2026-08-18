@@ -44,8 +44,10 @@ async def process_payment(
         await _release_quietly(sessions, payment_id, claimed_at=now)
         raise TransientError(f"шлюз: {type(error).__name__}: {error}") from error
 
-    payment.status = PaymentStatus.SUCCEEDED if succeeded else PaymentStatus.FAILED
-    payment.processed_at = clock.now()
+    if succeeded:
+        payment.mark_succeeded(clock.now())
+    else:
+        payment.mark_failed(clock.now())
 
     async with sessions() as session, session.begin():
         if not await PaymentRepository(session).save_result(payment, claimed_at=now):

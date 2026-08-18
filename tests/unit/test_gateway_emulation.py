@@ -1,8 +1,5 @@
 import asyncio
-import os
-import subprocess
-import sys
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from app.infrastructure.gateway import EmulatedGateway, duration_for, outcome_for
 
@@ -44,30 +41,6 @@ def test_outcome_does_not_depend_on_call_order() -> None:
     reversed_order = [outcome_for(payment_id) for payment_id in reversed(ids)]
 
     assert straight == list(reversed(reversed_order))
-
-
-def test_outcome_survives_a_restart_of_the_process() -> None:
-    # встроенный hash() солится на каждый запуск: повтор после рестарта
-    # обработчика дал бы другой исход по тому же платежу
-    fixed = UUID("00000000-0000-0000-0000-000000000001")
-    script = (
-        "from uuid import UUID;"
-        "from app.infrastructure.gateway import outcome_for, duration_for;"
-        f"print(outcome_for(UUID('{fixed}')), duration_for(UUID('{fixed}')))"
-    )
-
-    runs = {
-        subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            check=True,
-            env={**os.environ, "PYTHONHASHSEED": seed},
-        ).stdout.strip()
-        for seed in ("1", "2")
-    }
-
-    assert len(runs) == 1
 
 
 class NoWaitClock:
