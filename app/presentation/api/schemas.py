@@ -11,20 +11,6 @@ from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
 from app.infrastructure.config import settings
 
-#: Наружу деньги всегда строкой и не короче двух знаков
-OUTPUT_SCALE = Decimal("0.01")
-
-
-def format_amount(amount: Decimal) -> str:
-    # numeric(20,4) возвращает масштаб колонки, поэтому сначала снимаем
-    # незначащие нули, и только потом добиваем до двух знаков. Обратный
-    # порядок округлял бы 1.005 до 1.00 — сумма, которой в базе нет
-    trimmed = amount.normalize()
-    exponent = trimmed.as_tuple().exponent
-    if not isinstance(exponent, int) or exponent > -2:
-        trimmed = trimmed.quantize(OUTPUT_SCALE)
-    return format(trimmed, "f")
-
 
 class PaymentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -81,7 +67,7 @@ class PaymentView(BaseModel):
     def of(cls, payment: Payment) -> "PaymentView":
         return cls(
             payment_id=payment.payment_id,
-            amount=format_amount(payment.amount.amount),
+            amount=payment.amount.formatted,
             currency=payment.amount.currency,
             description=payment.description,
             metadata=payment.payment_metadata,

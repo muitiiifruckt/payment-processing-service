@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.presentation.api.schemas import format_amount
+from app.domain.money import Currency, Money
 
 
 @pytest.mark.parametrize(
@@ -18,4 +18,4 @@ from app.presentation.api.schemas import format_amount
     ],
 )
 def test_amount_is_shown_without_losing_stored_precision(stored: Decimal, shown: str) -> None:
-    assert format_amount(stored) == shown
+    assert Money(stored, Currency.RUB).formatted == shown
