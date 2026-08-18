@@ -23,8 +23,13 @@ class HttpWebhookSender:
             await self._post(client, url, payload)
 
     async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> None:
+        request = client.build_request("POST", url, json=payload)
         try:
-            response = await client.post(url, json=payload)
+            response = await client.send(request, stream=True)
+            try:
+                await _drain(response)
+            finally:
+                await response.aclose()
         except httpx.HTTPError as error:
             # обрыв, отказ DNS, истёкшее ожидание — получателя сейчас нет,
             # но он может появиться к следующей попытке
@@ -41,6 +46,16 @@ class HttpWebhookSender:
                 retry_after=_retry_after(response),
             )
         raise WebhookRejectedError(f"получатель ответил {response.status_code}")
+
+
+async def _drain(response: httpx.Response) -> None:
+    """Тело получателя нам не нужно, но соединение надо освободить. Читаем
+    потоком и не дальше лимита: иначе ответ произвольного размера съест память."""
+    read = 0
+    async for chunk in response.aiter_bytes():
+        read += len(chunk)
+        if read >= settings.webhook_max_response_bytes:
+            break
 
 
 def _retry_after(response: httpx.Response) -> float | None:
