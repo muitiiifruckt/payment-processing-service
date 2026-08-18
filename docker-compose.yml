@@ -29,20 +29,23 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      RABBITMQ_URL: ${RABBITMQ_URL}
-      API_KEY: ${API_KEY}
-      ENABLE_WEBHOOK_SINK: ${ENABLE_WEBHOOK_SINK}
-      GATEWAY_FORCE_OUTCOME: ${GATEWAY_FORCE_OUTCOME}
+      DATABASE_URL: ${DATABASE_URL:?нужен в .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?нужен в .env}
+      API_KEY: ${API_KEY:?нужен в .env}
+      ENABLE_WEBHOOK_SINK: ${ENABLE_WEBHOOK_SINK:-false}
+      GATEWAY_FORCE_OUTCOME: ${GATEWAY_FORCE_OUTCOME:-}
     ports:
       - "8000:8000"
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
     # накат миграций здесь и только здесь: consumer ждёт /health, вторая гонка на схему не нужна
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # exec, иначе PID 1 остаётся sh и SIGTERM до uvicorn не доходит:
+    # остановка ждёт весь stop_grace_period и бьёт по живым запросам
+    command: sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 5s
@@ -54,11 +57,11 @@ services:
   consumer:
     build: .
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      RABBITMQ_URL: ${RABBITMQ_URL}
-      API_KEY: ${API_KEY}
-      ENABLE_WEBHOOK_SINK: ${ENABLE_WEBHOOK_SINK}
-      GATEWAY_FORCE_OUTCOME: ${GATEWAY_FORCE_OUTCOME}
+      DATABASE_URL: ${DATABASE_URL:?нужен в .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?нужен в .env}
+      API_KEY: ${API_KEY:?нужен в .env}
+      ENABLE_WEBHOOK_SINK: ${ENABLE_WEBHOOK_SINK:-false}
+      GATEWAY_FORCE_OUTCOME: ${GATEWAY_FORCE_OUTCOME:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,6 +70,7 @@ services:
       api:
         condition: service_healthy
     command: faststream run app.presentation.consumer:create_app --factory
+    restart: unless-stopped
     stop_grace_period: 30s
 
 volumes:

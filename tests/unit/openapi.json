@@ -255,8 +255,7 @@
                   "$ref": "#/components/schemas/PaymentAccepted"
                 }
               }
-            },
-            "description": "Successful Response"
+            }
           },
           "401": {
             "content": {
@@ -265,8 +264,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Unauthorized"
+            }
           },
           "404": {
             "content": {
@@ -275,8 +273,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "409": {
             "content": {
@@ -285,8 +282,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Conflict"
+            }
           },
           "422": {
             "content": {
@@ -295,8 +291,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Unprocessable Content"
+            }
           }
         },
         "security": [
@@ -343,8 +338,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Unauthorized"
+            }
           },
           "404": {
             "content": {
@@ -353,8 +347,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "422": {
             "content": {
@@ -363,8 +356,7 @@
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Unprocessable Content"
+            }
           }
         },
         "security": [

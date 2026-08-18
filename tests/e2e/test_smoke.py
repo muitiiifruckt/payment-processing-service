@@ -60,7 +60,7 @@ async def test_a_payment_reaches_a_terminal_status_and_the_webhook_arrives(
     assert payment["processed_at"] is not None
 
     async def delivered() -> dict[str, Any] | None:
-        received = (await client.get("/__sink__/webhook")).json()
+        received = (await client.get("/__sink__/webhook", headers={"X-API-Key": API_KEY})).json()
         matching = [event for event in received if event["payment_id"] == payment_id]
         return matching[0] if matching else None
 

@@ -1,9 +1,18 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.infrastructure.config import settings
 from app.main import create_app
+from app.presentation.api.sink import received
 
 PAYLOAD = {"event_id": "e", "payment_id": "p", "status": "succeeded"}
+KEY = {"X-API-Key": settings.api_key}
+
+
+@pytest.fixture(autouse=True)
+def empty_sink() -> None:
+    """Приёмник живёт в памяти модуля: без очистки тест зависит от соседей."""
+    received.clear()
 
 
 async def client_for(monkeypatch: pytest.MonkeyPatch, enabled: bool) -> AsyncClient:
@@ -17,10 +26,10 @@ async def test_the_sink_accepts_a_webhook_when_it_is_enabled(
 ) -> None:
     async with await client_for(monkeypatch, enabled=True) as client:
         response = await client.post("/__sink__/webhook", json=PAYLOAD)
-        received = await client.get("/__sink__/webhook")
+        listing = await client.get("/__sink__/webhook", headers=KEY)
 
     assert response.status_code == 204
-    assert received.json() == [PAYLOAD]
+    assert listing.json() == [PAYLOAD]
 
 
 async def test_the_sink_is_absent_when_it_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,3 +48,11 @@ async def test_the_sink_does_not_appear_in_the_public_schema(
     schema = create_app().openapi()
 
     assert not [path for path in schema["paths"] if "sink" in path]
+
+
+async def test_reading_the_sink_requires_the_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Наружу это содержимое чужих платежей: суммы, статусы, идентификаторы."""
+    async with await client_for(monkeypatch, enabled=True) as client:
+        response = await client.get("/__sink__/webhook")
+
+    assert response.status_code == 401
