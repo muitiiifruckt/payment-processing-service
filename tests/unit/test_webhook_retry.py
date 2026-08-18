@@ -152,3 +152,14 @@ async def test_a_rejected_payload_is_not_a_temporary_failure() -> None:
     )
 
     assert delivered is False
+
+
+async def test_a_zero_retry_after_does_not_remove_the_delay() -> None:
+    """Получатель под нагрузкой, отвечающий Retry-After: 0, иначе получил бы
+    три обращения подряд без единой паузы."""
+    sender = Sender(WebhookUnavailableError("429", retry_after=0.0), None)
+    clock = RecordingClock()
+
+    await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
+
+    assert clock.slept == [1.0]
