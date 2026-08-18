@@ -118,3 +118,16 @@ async def test_retry_after_beyond_the_ceiling_is_capped() -> None:
     await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
 
     assert clock.slept == [30.0]
+
+
+async def test_payment_without_a_webhook_url_produces_no_calls() -> None:
+    payment = a_payment()
+    payment.webhook_url = None
+    sender = Sender(WebhookUnavailableError("503"))
+
+    delivered = await deliver_webhook(
+        payment, event_id=uuid4(), sender=sender, clock=RecordingClock()
+    )
+
+    assert delivered is True
+    assert sender.calls == []
