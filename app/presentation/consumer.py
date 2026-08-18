@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -9,8 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.create_payment import PAYMENT_CREATED
 from app.application.ports import Clock, PaymentGateway
 from app.application.process_payment import PermanentError, process_payment
+from app.application.publish_outbox import relay_forever
 from app.infrastructure.broker import topology
-from app.infrastructure.broker.broker import declare_topology, make_broker
+from app.infrastructure.broker.broker import (
+    RabbitEventPublisher,
+    declare_topology,
+    make_broker,
+)
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import settings
 from app.infrastructure.db.session import session_factory
@@ -53,10 +59,21 @@ def build_app(
     register_handlers(broker, gateway=gateway, clock=clock, sessions=sessions)
 
     app = FastStream(broker)
+    relay: list[asyncio.Task[None]] = []
 
     @app.after_startup
-    async def declare() -> None:
+    async def start_relay() -> None:
         await declare_topology(broker)
+        relay.append(
+            asyncio.create_task(relay_forever(sessions, RabbitEventPublisher(broker), clock))
+        )
+
+    @app.on_shutdown
+    async def stop_relay() -> None:
+        for task in relay:
+            task.cancel()
+        await asyncio.gather(*relay, return_exceptions=True)
+        relay.clear()
 
     return app
 
