@@ -54,10 +54,12 @@ async def deliver_webhook(
             # получатель осознанно отверг тело: повтор ничего не изменит
             log.warning("получатель отверг webhook по платежу %s", payment.payment_id)
             return False
-        except WebhookUnavailableError:
+        except WebhookUnavailableError as error:
             if attempt == attempts:
                 return False
-            await clock.sleep(webhook_backoff(attempt))
+            # получатель сам назвал срок — он знает о своей загрузке больше
+            delay = error.retry_after if error.retry_after is not None else webhook_backoff(attempt)
+            await clock.sleep(delay)
         else:
             return True
     return False
