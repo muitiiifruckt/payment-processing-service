@@ -23,7 +23,12 @@ class HttpWebhookSender:
             await self._post(client, url, payload)
 
     async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> None:
-        response = await client.post(url, json=payload)
+        try:
+            response = await client.post(url, json=payload)
+        except httpx.HTTPError as error:
+            # обрыв, отказ DNS, истёкшее ожидание — получателя сейчас нет,
+            # но он может появиться к следующей попытке
+            raise WebhookUnavailableError(f"{type(error).__name__}: {error}") from error
         if response.status_code < 300:
             return
         if response.is_redirect:
