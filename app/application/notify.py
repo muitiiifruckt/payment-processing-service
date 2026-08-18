@@ -25,6 +25,11 @@ class WebhookUnavailableError(Exception):
         self.retry_after = retry_after
 
 
+class WebhookNotDeliveredError(Exception):
+    """Попытки исчерпаны, получатель так и не подтвердил. По RFC §6.2 это
+    временный отказ обработки: сообщение уходит в повтор."""
+
+
 class WebhookSender(Protocol):
     async def send(self, url: str, payload: dict[str, Any]) -> None: ...
 
