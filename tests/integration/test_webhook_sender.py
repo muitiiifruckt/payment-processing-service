@@ -64,3 +64,10 @@ async def test_redirect_is_not_followed() -> None:
 
     assert redirect.called
     assert not elsewhere.called
+
+
+async def test_timeout_is_a_temporary_failure() -> None:
+    with respx.mock:
+        respx.post(URL).mock(side_effect=httpx.ConnectTimeout("timed out"))
+        with pytest.raises(WebhookUnavailableError):
+            await HttpWebhookSender().send(URL, PAYLOAD)
