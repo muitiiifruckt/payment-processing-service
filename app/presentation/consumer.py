@@ -19,7 +19,7 @@ from app.infrastructure.broker.broker import (
 )
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import settings
-from app.infrastructure.db.session import session_factory
+from app.infrastructure.db.session import dispose, session_factory
 from app.infrastructure.gateway import EmulatedGateway
 
 log = logging.getLogger(__name__)
@@ -81,13 +81,21 @@ def build_app(
 
 
 def create_app() -> FastStream:
+    """Фабрика, а не модульный app: импорт модуля не должен поднимать пул
+    к БД и соединение с брокером.
+
+    Запуск: faststream run app.presentation.consumer:create_app --factory
+    """
     clock = SystemClock()
-    return build_app(
+    app = build_app(
         make_broker(),
         gateway=EmulatedGateway(clock, settings.gateway_force_outcome),
         clock=clock,
         sessions=session_factory(),
     )
 
+    @app.on_shutdown
+    async def close_database() -> None:
+        await dispose()
 
-app = create_app()
+    return app
