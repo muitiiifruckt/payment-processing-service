@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.notify import WebhookUnavailableError
-from app.application.process_payment import process_payment
+from app.application.process_payment import TransientError, process_payment
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
@@ -109,7 +109,8 @@ async def test_redelivery_after_a_failed_webhook_retries_only_the_webhook(
     session_factory: async_sessionmaker[AsyncSession], with_hook: Payment
 ) -> None:
     failing = RecordingSender(WebhookUnavailableError("503"))
-    await run(session_factory, with_hook.payment_id, failing)
+    with pytest.raises(TransientError):
+        await run(session_factory, with_hook.payment_id, failing)
     assert len(failing.calls) == 3  # первый прогон: три попытки
 
     after = await reload(session_factory, with_hook.payment_id)
