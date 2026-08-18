@@ -40,12 +40,37 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "PaymentAccepted": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "payment_id": {
+            "format": "uuid",
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaymentStatus"
+          }
+        },
+        "required": [
+          "payment_id",
+          "status",
+          "created_at"
+        ],
+        "title": "PaymentAccepted",
+        "type": "object"
+      },
       "PaymentCreate": {
         "additionalProperties": false,
         "properties": {
           "amount": {
             "anyOf": [
               {
+                "exclusiveMaximum": 1e+16,
                 "exclusiveMinimum": 0.0,
                 "type": "number"
               },
@@ -226,7 +251,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentAccepted"
+                }
               }
             },
             "description": "Successful Response"
