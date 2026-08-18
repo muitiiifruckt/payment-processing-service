@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
+from app.domain.status import PaymentStatus
 from app.infrastructure.db.payment_repository import PaymentRepository
 
 NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -85,7 +86,28 @@ async def test_terminal_payment_cannot_be_claimed(session: AsyncSession) -> None
     payment = await stored_payment(session, payment_id, "key-claim-5")
     repository = PaymentRepository(session)
 
+    assert await repository.claim(payment_id, now=NOW, lease=LEASE)
     payment.mark_succeeded(now=NOW)
-    await repository.save_result(payment)
+    await repository.save_result(payment, claimed_at=NOW)
 
     assert not await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+
+async def test_a_late_result_does_not_overwrite_a_fresh_claim(session: AsyncSession) -> None:
+    """Захват первого обработчика протух, платёж взял второй. Опоздавшая
+    запись первого обязана пройти мимо: иначе она снимет чужой захват и
+    припишет платежу время своего прогона."""
+    payment_id = UUID("0192f3a4-0000-7000-8000-000000000040")
+    payment = await stored_payment(session, payment_id, "key-claim-late")
+    repository = PaymentRepository(session)
+    assert await repository.claim(payment_id, now=NOW, lease=LEASE)
+
+    later = NOW + timedelta(seconds=30)
+    assert await repository.claim(payment_id, now=later, lease=LEASE)
+
+    payment.mark_succeeded(NOW)
+    assert await repository.save_result(payment, claimed_at=NOW) is False
+
+    row = await repository.get(payment_id)
+    assert row is not None
+    assert row.status is PaymentStatus.PENDING
