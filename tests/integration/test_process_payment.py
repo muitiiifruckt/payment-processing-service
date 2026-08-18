@@ -217,3 +217,29 @@ async def test_declined_payment_is_treated_as_handled_and_not_retried(
 
     after = await reload(session_factory, stored.payment_id)
     assert after.status is PaymentStatus.FAILED
+
+
+async def test_a_failing_release_does_not_hide_the_gateway_error(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """БД и шлюз отваливаются вместе. Если снятие захвата тоже не удалось,
+    наружу обязан выйти TransientError, а не сырая ошибка драйвера: иначе
+    сообщение уедет в DLQ с непонятной причиной."""
+
+    class BreaksAfterTheClaim:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self) -> AsyncSession:
+            self.calls += 1
+            if self.calls > 1:
+                raise ConnectionError("соединение с БД потеряно")
+            return session_factory()
+
+    with pytest.raises(TransientError):
+        await process_payment(
+            BreaksAfterTheClaim(),  # type: ignore[arg-type]
+            stored.payment_id,
+            gateway=AlwaysUnavailable(),
+            clock=FrozenClock(),
+        )
