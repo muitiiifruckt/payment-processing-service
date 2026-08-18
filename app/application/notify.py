@@ -49,8 +49,11 @@ async def deliver_webhook(
     clock: Clock,
     attempts: int = WEBHOOK_FIRST_PASS_ATTEMPTS,
 ) -> bool:
+    if payment.webhook_url is None:
+        # RFC §8.2: платёж без адреса считается уведомлённым
+        return True
+
     payload = webhook_payload(payment, event_id=event_id)
-    assert payment.webhook_url is not None
     for attempt in range(1, attempts + 1):
         try:
             await sender.send(payment.webhook_url, payload)
