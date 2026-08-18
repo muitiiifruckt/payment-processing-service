@@ -4,6 +4,8 @@ from datetime import timedelta
 
 #: TTL очередей повторов обработки сообщения, секунды
 RETRY_QUEUE_DELAYS: tuple[int, ...] = (2, 4, 8)
+#: Первичная обработка плюс три повтора (RFC §6.3)
+MAX_HANDLER_RUNS = 1 + len(RETRY_QUEUE_DELAYS)
 
 #: Задержка перед второй попыткой доставки webhook, секунды
 WEBHOOK_BASE_DELAY = 1.0
