@@ -3,7 +3,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from faststream import FastStream
+from faststream import Context, FastStream
 from faststream.rabbit import RabbitBroker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -33,8 +33,10 @@ def register_handlers(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
     @broker.subscriber(topology.payments_new, topology.payments_exchange)
-    async def on_payment_created(event: dict[str, Any]) -> None:
-        event_type = event.get("event_type", PAYMENT_CREATED)
+    async def on_payment_created(
+        event: dict[str, Any],
+        event_type: str = Context("message.headers.x-event-type", default=""),
+    ) -> None:
         if event_type != PAYMENT_CREATED:
             raise PermanentError(f"неизвестный тип события: {event_type}")
 
