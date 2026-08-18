@@ -3,7 +3,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+
 from app.application.notify import (
+    WebhookNotDeliveredError,
     WebhookRejectedError,
     WebhookUnavailableError,
     deliver_webhook,
@@ -60,9 +63,9 @@ async def test_first_pass_makes_three_attempts_with_growing_delays() -> None:
     sender = Sender(WebhookUnavailableError("503"))
     clock = RecordingClock()
 
-    delivered = await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
+    with pytest.raises(WebhookNotDeliveredError):
+        await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
 
-    assert delivered is False
     assert len(sender.calls) == 3
     assert clock.slept == [1.0, 2.0]
 
@@ -82,11 +85,9 @@ async def test_redelivery_makes_a_single_attempt() -> None:
     sender = Sender(WebhookUnavailableError("503"))
     clock = RecordingClock()
 
-    delivered = await deliver_webhook(
-        a_payment(), event_id=uuid4(), sender=sender, clock=clock, attempts=1
-    )
+    with pytest.raises(WebhookNotDeliveredError):
+        await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock, attempts=1)
 
-    assert delivered is False
     assert len(sender.calls) == 1
     assert clock.slept == []
 
@@ -131,3 +132,23 @@ async def test_payment_without_a_webhook_url_produces_no_calls() -> None:
 
     assert delivered is True
     assert sender.calls == []
+
+
+async def test_exhausted_attempts_are_reported_as_a_temporary_failure() -> None:
+    """RFC §6.2: исчерпание попыток — временный отказ обработки. Без этого
+    сообщение подтверждается, и получатель не узнаёт о платеже никогда."""
+    sender = Sender(WebhookUnavailableError("503"))
+
+    with pytest.raises(WebhookNotDeliveredError):
+        await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=RecordingClock())
+
+
+async def test_a_rejected_payload_is_not_a_temporary_failure() -> None:
+    """Повторять то, что получатель осознанно отверг, — четыре прогона впустую."""
+    sender = Sender(WebhookRejectedError("400"))
+
+    delivered = await deliver_webhook(
+        a_payment(), event_id=uuid4(), sender=sender, clock=RecordingClock()
+    )
+
+    assert delivered is False
