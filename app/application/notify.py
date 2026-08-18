@@ -73,10 +73,13 @@ async def deliver_webhook(
                 ) from error
             # получатель сам назвал срок — он знает о своей загрузке больше,
             # но не настолько, чтобы подвешивать обработчик на произвольное время
+            # своя задержка — пол, потолок — защита от произвольного срока:
+            # Retry-After: 0 от нагруженного получателя иначе снимает паузу вовсе
+            own = webhook_backoff(attempt)
             delay = (
-                min(error.retry_after, WEBHOOK_MAX_RETRY_AFTER)
+                min(max(error.retry_after, own), WEBHOOK_MAX_RETRY_AFTER)
                 if error.retry_after is not None
-                else webhook_backoff(attempt)
+                else own
             )
             await clock.sleep(delay)
         else:
