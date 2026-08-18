@@ -1,9 +1,12 @@
+import logging
 from typing import Any, Protocol
 from uuid import UUID
 
 from app.application.policy import WEBHOOK_FIRST_PASS_ATTEMPTS, webhook_backoff
 from app.application.ports import Clock
 from app.domain.payment import Payment
+
+log = logging.getLogger(__name__)
 
 
 class WebhookRejectedError(Exception):
@@ -47,6 +50,10 @@ async def deliver_webhook(
     for attempt in range(1, attempts + 1):
         try:
             await sender.send(payment.webhook_url, payload)
+        except WebhookRejectedError:
+            # получатель осознанно отверг тело: повтор ничего не изменит
+            log.warning("получатель отверг webhook по платежу %s", payment.payment_id)
+            return False
         except WebhookUnavailableError:
             if attempt == attempts:
                 return False
