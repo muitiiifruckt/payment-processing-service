@@ -3,6 +3,7 @@ import pytest
 import respx
 
 from app.application.notify import WebhookRejectedError, WebhookUnavailableError
+from app.infrastructure.config import settings
 from app.infrastructure.webhook import HttpWebhookSender
 
 URL = "https://receiver.test/hook"
@@ -48,3 +49,18 @@ async def test_unparseable_retry_after_falls_back_to_our_own_delay() -> None:
             await HttpWebhookSender().send(URL, PAYLOAD)
 
     assert error.value.retry_after is None
+
+
+async def test_redirect_is_not_followed() -> None:
+    """webhook_url задаёт клиент: переход по 3xx увёл бы запрос на адрес,
+    которого клиент не называл."""
+    with respx.mock:
+        redirect = respx.post(URL).mock(
+            return_value=httpx.Response(302, headers={"Location": "https://elsewhere.test/hook"})
+        )
+        elsewhere = respx.post("https://elsewhere.test/hook").mock(return_value=httpx.Response(200))
+        with pytest.raises(WebhookRejectedError):
+            await HttpWebhookSender().send(URL, PAYLOAD)
+
+    assert redirect.called
+    assert not elsewhere.called
