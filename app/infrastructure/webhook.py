@@ -27,5 +27,21 @@ class HttpWebhookSender:
         if response.status_code < 400:
             return
         if response.status_code >= 500 or response.status_code in RETRYABLE_CLIENT_ERRORS:
-            raise WebhookUnavailableError(f"получатель ответил {response.status_code}")
+            raise WebhookUnavailableError(
+                f"получатель ответил {response.status_code}",
+                retry_after=_retry_after(response),
+            )
         raise WebhookRejectedError(f"получатель ответил {response.status_code}")
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """Только секунды: форма с датой требует доверия к часам получателя,
+    а неразобранное значение лучше заменить собственной задержкой."""
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
