@@ -66,3 +66,26 @@ async def test_first_pass_makes_three_attempts_with_growing_delays() -> None:
     assert len(sender.calls) == 3
     assert clock.slept == [1.0, 2.0]
 
+
+async def test_success_on_the_second_attempt_stops_there() -> None:
+    sender = Sender(WebhookUnavailableError("503"), None)
+    clock = RecordingClock()
+
+    delivered = await deliver_webhook(a_payment(), event_id=uuid4(), sender=sender, clock=clock)
+
+    assert delivered is True
+    assert len(sender.calls) == 2
+    assert clock.slept == [1.0]
+
+
+async def test_redelivery_makes_a_single_attempt() -> None:
+    sender = Sender(WebhookUnavailableError("503"))
+    clock = RecordingClock()
+
+    delivered = await deliver_webhook(
+        a_payment(), event_id=uuid4(), sender=sender, clock=clock, attempts=1
+    )
+
+    assert delivered is False
+    assert len(sender.calls) == 1
+    assert clock.slept == []
