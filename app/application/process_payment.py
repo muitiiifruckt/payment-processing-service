@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.notify import WebhookSender
 from app.application.policy import CLAIM_LEASE
 from app.application.ports import Clock, GatewayUnavailableError, PaymentGateway
 from app.domain.payment import Payment
@@ -27,6 +28,8 @@ async def process_payment(
     *,
     gateway: PaymentGateway,
     clock: Clock,
+    sender: WebhookSender,
+    event_id: UUID,
 ) -> None:
     now = clock.now()
     payment = await _take(sessions, payment_id, now=now)
