@@ -43,15 +43,14 @@ def register_handlers(
         await process_payment(sessions, payment_id, gateway=gateway, clock=clock)
 
 
-def create_app() -> FastStream:
-    broker = make_broker()
-    clock = SystemClock()
-    register_handlers(
-        broker,
-        gateway=EmulatedGateway(clock, settings.gateway_force_outcome),
-        clock=clock,
-        sessions=session_factory(),
-    )
+def build_app(
+    broker: RabbitBroker,
+    *,
+    gateway: PaymentGateway,
+    clock: Clock,
+    sessions: async_sessionmaker[AsyncSession],
+) -> FastStream:
+    register_handlers(broker, gateway=gateway, clock=clock, sessions=sessions)
 
     app = FastStream(broker)
 
@@ -60,6 +59,16 @@ def create_app() -> FastStream:
         await declare_topology(broker)
 
     return app
+
+
+def create_app() -> FastStream:
+    clock = SystemClock()
+    return build_app(
+        make_broker(),
+        gateway=EmulatedGateway(clock, settings.gateway_force_outcome),
+        clock=clock,
+        sessions=session_factory(),
+    )
 
 
 app = create_app()
