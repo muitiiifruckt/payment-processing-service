@@ -10,7 +10,7 @@ class ForbiddenTargetError(Exception):
 
 
 def system_resolver(host: str, port: int) -> list[tuple[str, int]]:
-    return [(info[4][0], port) for info in socket.getaddrinfo(host, port)]
+    return [(str(info[4][0]), port) for info in socket.getaddrinfo(host, port)]
 
 
 def ensure_allowed(
