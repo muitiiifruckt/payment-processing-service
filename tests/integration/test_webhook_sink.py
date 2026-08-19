@@ -56,3 +56,18 @@ async def test_reading_the_sink_requires_the_api_key(monkeypatch: pytest.MonkeyP
         response = await client.get("/__sink__/webhook")
 
     assert response.status_code == 401
+
+
+async def test_the_flaky_endpoint_refuses_the_asked_number_of_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Приёмник, отвечающий отказом заданное число раз, нужен сквозному
+    тесту повторов: своего эндпоинта с управляемым отказом иначе нет."""
+    async with await client_for(monkeypatch, enabled=True) as client:
+        first = await client.post("/__sink__/flaky/2", json=PAYLOAD)
+        second = await client.post("/__sink__/flaky/2", json=PAYLOAD)
+        third = await client.post("/__sink__/flaky/2", json=PAYLOAD)
+        listing = await client.get("/__sink__/webhook", headers=KEY)
+
+    assert [first.status_code, second.status_code, third.status_code] == [503, 503, 204]
+    assert listing.json() == [PAYLOAD]
