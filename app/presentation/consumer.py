@@ -1,10 +1,11 @@
 import asyncio
+import json
 import logging
 from typing import Any
 from uuid import UUID
 
 from faststream import Context, FastStream
-from faststream.rabbit import RabbitBroker
+from faststream.rabbit import RabbitBroker, RabbitMessage
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.create_payment import PAYMENT_CREATED
@@ -38,10 +39,19 @@ def register_handlers(
 ) -> None:
     @broker.subscriber(topology.payments_new, topology.payments_exchange)
     async def on_payment_created(
-        event: dict[str, Any],
+        message: RabbitMessage,
         event_type: str = Context("message.headers.x-event-type", default=""),
         attempt: int = Context("message.headers.x-attempt", default=0),
     ) -> None:
+        # тело разбирается своими руками: валидация фреймворком происходит
+        # до этой функции, и негодное сообщение обошло бы классификацию
+        body = bytes(message.body)
+        try:
+            event = _parse(body)
+        except PermanentError as error:
+            await _route(broker, {"body": repr(body[:256])}, attempt, error, PERMANENT, event_type)
+            return
+
         try:
             await _handle(
                 event,
@@ -76,6 +86,16 @@ async def _route(
     except Exception:
         log.exception("не удалось переслать сообщение по отказу %s", error)
         raise
+
+
+def _parse(body: bytes) -> dict[str, Any]:
+    try:
+        event = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PermanentError(f"тело сообщения не разбирается: {error}") from error
+    if not isinstance(event, dict):
+        raise PermanentError(f"тело сообщения не объект: {type(event).__name__}")
+    return event
 
 
 async def _handle(
