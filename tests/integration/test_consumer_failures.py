@@ -282,3 +282,15 @@ async def test_a_payment_busy_for_too_long_stops_waiting_and_spends_a_run(
 
     assert seen["dlq"] == []
     assert [headers["x-attempt"] for _, headers in seen["retry-1"]] == [1]
+
+
+async def test_the_waiting_budget_is_reset_once_the_payment_is_taken(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Счётчик ожиданий — про одну схватку за платёж. Не обнулив его, мы
+    оставили бы следующей схватке огрызок бюджета."""
+    broker, seen = make_broker_with_spies(session_factory, Unavailable())
+
+    await deliver(broker, stored.payment_id, attempt=0, busy=MAX_BUSY_WAITS - 1)
+
+    assert [headers["x-busy"] for _, headers in seen["retry-1"]] == [0]

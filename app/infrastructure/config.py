@@ -3,8 +3,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-#: Ширина колонки payments.description
-DESCRIPTION_COLUMN = 512
+from app.domain.limits import DESCRIPTION_MAX
 
 
 class Settings(BaseSettings):
@@ -20,7 +19,7 @@ class Settings(BaseSettings):
 
     #: Верхняя граница зашита в колонку payments.description: настройка
     #: сверх неё дала бы 500 на записи вместо 422 на валидации
-    description_max_length: int = Field(default=DESCRIPTION_COLUMN, le=DESCRIPTION_COLUMN, gt=0)
+    description_max_length: int = Field(default=DESCRIPTION_MAX, le=DESCRIPTION_MAX, gt=0)
     metadata_max_bytes: int = 8 * 1024
 
     webhook_timeout_seconds: float = 5.0

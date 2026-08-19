@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.policy import CLAIM_LEASE
@@ -15,6 +16,7 @@ from app.application.process_payment import (
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
+from app.infrastructure.db.models import PaymentRow
 from app.infrastructure.db.payment_repository import PaymentRepository
 
 NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -229,12 +231,20 @@ async def test_the_claim_is_visible_from_outside_while_the_gateway_is_called(
 async def test_declined_payment_is_treated_as_handled_and_not_retried(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    """Бизнес-отказ — это результат, а не сбой: исключения нет, значит
-    сообщение подтверждается и в DLQ не уезжает."""
+    """Бизнес-отказ — результат, а не сбой: ни исключения, ни висящего
+    захвата. Исключение увело бы сообщение в повтор, невыпущенный захват
+    заблокировал бы платёж до протухания метки."""
     await run(session_factory, stored.payment_id, gateway=AlwaysFails(), clock=FrozenClock())
 
     after = await reload(session_factory, stored.payment_id)
     assert after.status is PaymentStatus.FAILED
+    async with session_factory() as session:
+        # метка снята. claim здесь не годится: он вернёт False уже потому,
+        # что платёж терминален, независимо от захвата
+        locked_at = await session.scalar(
+            select(PaymentRow.locked_at).where(PaymentRow.payment_id == stored.payment_id)
+        )
+    assert locked_at is None
 
 
 async def test_a_failing_release_does_not_hide_the_gateway_error(
@@ -261,3 +271,32 @@ async def test_a_failing_release_does_not_hide_the_gateway_error(
             gateway=AlwaysUnavailable(),
             clock=FrozenClock(),
         )
+
+
+async def test_a_failed_result_write_keeps_the_claim(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Шлюз уже отработал. Снять захват здесь значит открыть повтор через
+    две секунды и обратиться к шлюзу второй раз — по настоящему провайдеру
+    это второе списание. Метка протухнет сама."""
+
+    class BreaksOnTheWrite:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self) -> AsyncSession:
+            self.calls += 1
+            if self.calls == 2:
+                raise ConnectionError("соединение с БД потеряно")
+            return session_factory()
+
+    with pytest.raises(TransientError):
+        await run(
+            BreaksOnTheWrite(), stored.payment_id, gateway=AlwaysSucceeds(), clock=FrozenClock()
+        )
+
+    async with session_factory() as session:
+        locked_at = await session.scalar(
+            select(PaymentRow.locked_at).where(PaymentRow.payment_id == stored.payment_id)
+        )
+    assert locked_at == NOW

@@ -73,9 +73,9 @@ async def process_payment(
                 log.info("результат по платежу %s уже записан", payment_id)
                 return
     except Exception as error:
-        # захват нужно снять и здесь: иначе платёж ждёт протухания метки,
-        # а повторы тем временем упираются в неё же
-        await _release_quietly(sessions, payment_id, claimed_at=now)
+        # захват намеренно НЕ снимается: шлюз уже отработал, и досрочно
+        # открытый повтор обратился бы к нему второй раз. Метка протухнет
+        # сама, а до тех пор ожидание не тратит прогонов
         raise TransientError(f"запись исхода: {type(error).__name__}: {error}") from error
 
     await _notify(
