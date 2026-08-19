@@ -12,6 +12,10 @@ from app.domain.payment import Payment
 
 log = logging.getLogger(__name__)
 
+#: Тип уведомления в теле webhook. Не совпадает с типом события в очереди:
+#: там payment.created, здесь сообщается уже свершившийся исход
+PAYMENT_PROCESSED = "payment.processed"
+
 
 class WebhookRejectedError(Exception):
     """Получатель осознанно отверг тело: повтор ничего не изменит."""
@@ -41,6 +45,9 @@ def webhook_payload(payment: Payment, *, event_id: UUID) -> dict[str, Any]:
         raise ValueError(f"платёж {payment.payment_id} ещё не обработан")
     return {
         "event_id": str(event_id),
+        # RFC §9: получатель должен различать типы уведомлений, не гадая
+        # по составу полей
+        "event_type": PAYMENT_PROCESSED,
         "payment_id": str(payment.payment_id),
         "status": payment.status.value,
         "amount": payment.amount.formatted,
