@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 import uuid
 from typing import Any
 
@@ -120,3 +121,89 @@ async def test_a_payment_with_an_unreachable_webhook_keeps_its_terminal_status(
 
     assert again["status"] == status
     assert again["processed_at"] == payment["processed_at"]
+
+
+async def test_a_receiver_that_refuses_twice_is_notified_after_the_retries(
+    client: httpx.AsyncClient,
+) -> None:
+    """Две первые попытки получают 503, третья проходит: повторы webhook
+    видны снаружи, а не только в логе."""
+    flaky = SINK_URL.replace("/__sink__/webhook", "/__sink__/flaky/2")
+    created = await create(client, webhook_url=flaky)
+    payment_id = created["payment_id"]
+
+    async def delivered() -> dict[str, Any] | None:
+        received = (await client.get("/__sink__/webhook", headers={"X-API-Key": API_KEY})).json()
+        matching = [event for event in received if event["payment_id"] == payment_id]
+        return matching[0] if matching else None
+
+    await until(delivered)
+
+    counts = (await client.get("/__sink__/flaky", headers={"X-API-Key": API_KEY})).json()
+    assert counts[payment_id] == 3
+
+
+async def test_the_queues_and_messages_survive_a_broker_restart(
+    client: httpx.AsyncClient,
+) -> None:
+    """Очереди durable, том у брокера есть: перезапуск не должен стирать
+    ни топологию, ни ещё не разобранные сообщения."""
+    subprocess.run(["docker", "compose", "restart", "rabbitmq"], check=True, capture_output=True)
+
+    created = await create(client, webhook_url=SINK_URL)
+
+    async def settled() -> dict[str, Any] | None:
+        payment = (
+            await client.get(
+                f"/api/v1/payments/{created['payment_id']}", headers={"X-API-Key": API_KEY}
+            )
+        ).json()
+        return payment if payment["status"] in TERMINAL else None
+
+    assert (await until(settled))["status"] in TERMINAL
+
+
+async def test_stopping_the_consumer_does_not_leave_a_payment_half_done(
+    client: httpx.AsyncClient,
+) -> None:
+    """Бюджет остановки — 30 секунд, обработка длится до 5: прогон обязан
+    доиграть, а не оборваться посередине."""
+    created = await create(client, webhook_url=SINK_URL)
+    payment_id = created["payment_id"]
+
+    # дать consumer'у забрать сообщение и уйти в шлюз
+    await asyncio.sleep(3)
+    subprocess.run(["docker", "compose", "stop", "consumer"], check=True, capture_output=True)
+    try:
+        payment = (
+            await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
+        ).json()
+        # либо прогон доиграл, либо платёж не тронут — но не «в процессе»
+        assert payment["status"] in TERMINAL or payment["processed_at"] is None
+    finally:
+        subprocess.run(["docker", "compose", "start", "consumer"], check=True, capture_output=True)
+
+    assert (await until(lambda: _settled_or_none(client, payment_id)))["status"] in TERMINAL
+
+
+async def _settled_or_none(client: httpx.AsyncClient, payment_id: str) -> dict[str, Any] | None:
+    payment = (
+        await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
+    ).json()
+    return payment if payment["status"] in TERMINAL else None
+
+
+async def test_the_consumer_never_touched_the_database_before_the_migrations() -> None:
+    """Схему создаёт api, consumer стартует следом: без ожидания он бьётся
+    в несуществующие таблицы."""
+    logs = subprocess.run(
+        ["docker", "compose", "logs", "--no-color", "consumer"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    ).stdout
+
+    assert "does not exist" not in logs
+    assert "UndefinedTable" not in logs
