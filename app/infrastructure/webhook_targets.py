@@ -39,8 +39,14 @@ async def ensure_allowed(
     """Запрос уходит изнутри сети по адресу, который назвал клиент. Без
     проверки сервис работает прокси во внутренний периметр — от метаданных
     облака до собственной базы."""
-    split = urlsplit(url)
-    host = split.hostname
+    try:
+        split = urlsplit(url)
+        host = split.hostname
+        port = split.port
+    except ValueError as error:
+        # кривой адрес не станет годным от повтора: разбирать его заново
+        # четыре прогона и класть в DLQ — впустую потраченный бюджет
+        raise ForbiddenTargetError(f"адрес не разбирается: {error}") from error
     if not host:
         raise ForbiddenTargetError(f"в адресе {url} нет хоста")
     # список исключений снимает проверку с хоста целиком, а не только
@@ -48,7 +54,7 @@ async def ensure_allowed(
     if host.rstrip(".").lower() in {name.rstrip(".").lower() for name in allowed_hosts}:
         return
 
-    port = split.port or (443 if split.scheme == "https" else 80)
+    port = port or (443 if split.scheme == "https" else 80)
     try:
         addresses = await resolve(host, port)
     except socket.gaierror as error:

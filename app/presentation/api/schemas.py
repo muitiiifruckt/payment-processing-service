@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Self
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -34,8 +35,19 @@ class PaymentCreate(BaseModel):
     @field_validator("webhook_url")
     @classmethod
     def http_scheme_only(cls, value: str | None) -> str | None:
-        if value is not None and not value.startswith(("http://", "https://")):
+        if value is None:
+            return value
+        if not value.startswith(("http://", "https://")):
             raise ValueError("webhook_url должен начинаться с http:// или https://")
+        # разбор здесь, а не при отправке: иначе кривой адрес принимается,
+        # платёж обрабатывается и уезжает в DLQ на разборе через четыре прогона
+        try:
+            parsed = urlsplit(value)
+            _ = parsed.port  # порт разбирается лениво, здесь и вылезет кривой
+        except ValueError as error:
+            raise ValueError(f"webhook_url не разбирается: {error}") from error
+        if not parsed.hostname:
+            raise ValueError("в webhook_url нет хоста")
         return value
 
     @model_validator(mode="after")
