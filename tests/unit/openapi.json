@@ -252,7 +252,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaymentAccepted"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PaymentAccepted"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PaymentView"
+                    }
+                  ],
+                  "title": "Response Create Api V1 Payments Post"
                 }
               }
             }
