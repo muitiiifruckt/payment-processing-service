@@ -12,6 +12,13 @@ URL = "https://receiver.test/hook"
 PAYLOAD = {"payment_id": "p", "status": "succeeded"}
 
 
+@pytest.fixture(autouse=True)
+def allow_the_fake_receiver(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Здесь проверяется разбор ответов, а не адрес назначения. Имя
+    receiver.test не существует, и без исключения каждый тест ждал бы DNS."""
+    monkeypatch.setattr("app.infrastructure.config.settings.webhook_allowed_hosts", "receiver.test")
+
+
 @pytest.mark.parametrize("status", [500, 502, 503, 408, 429])
 async def test_temporary_answers_ask_for_a_retry(status: int) -> None:
     with respx.mock:

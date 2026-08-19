@@ -5,6 +5,7 @@ import httpx
 
 from app.application.notify import WebhookRejectedError, WebhookUnavailableError
 from app.infrastructure.config import settings
+from app.infrastructure.webhook_targets import ForbiddenTargetError, ensure_allowed
 
 #: 408 и 429 — единственные 4xx, которые имеет смысл повторять (RFC §6.2)
 RETRYABLE_CLIENT_ERRORS = frozenset({408, 429})
@@ -30,6 +31,12 @@ class HttpWebhookSender:
             await self._post(client, url, payload)
 
     async def _post(self, client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> None:
+        try:
+            ensure_allowed(url, allowed_hosts=settings.webhook_allowed_host_list)
+        except ForbiddenTargetError as error:
+            # отказ постоянный: адрес не станет разрешённым от повтора
+            raise WebhookRejectedError(str(error)) from error
+
         request = client.build_request("POST", url, json=payload)
         try:
             response = await client.send(request, stream=True)

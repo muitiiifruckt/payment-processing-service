@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     webhook_timeout_seconds: float = 5.0
     webhook_max_response_bytes: int = 64 * 1024
+    #: Хосты, которым разрешено быть внутри периметра, через запятую.
+    #: Нужны демонстрационному приёмнику: внутри сети compose он приватный
+    webhook_allowed_hosts: str = ""
 
     #: Демонстрационный приёмник webhook. Включается только для демо и e2e.
     enable_webhook_sink: bool = False
@@ -27,6 +30,10 @@ class Settings(BaseSettings):
     #: строка: всё, что не равно succeeded, означало бы отказ по всем платежам,
     #: и опечатка прошла бы незамеченной до самого демо
     gateway_force_outcome: Literal["succeeded", "failed"] | None = None
+
+    @property
+    def webhook_allowed_host_list(self) -> list[str]:
+        return [host.strip() for host in self.webhook_allowed_hosts.split(",") if host.strip()]
 
     @field_validator("gateway_force_outcome", mode="before")
     @classmethod
