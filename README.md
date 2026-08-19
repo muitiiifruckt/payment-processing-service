@@ -36,7 +36,11 @@ docker compose down -v
 ### Создание платежа
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/payments   -H "X-API-Key: local-dev-key"   -H "Idempotency-Key: 6f1c2b7a-0b1e-4f7a-9c2d-8a1b2c3d4e5f"   -H "Content-Type: application/json"   -d '{
+curl -X POST http://localhost:8000/api/v1/payments \
+  -H "X-API-Key: local-dev-key" \
+  -H "Idempotency-Key: 6f1c2b7a-0b1e-4f7a-9c2d-8a1b2c3d4e5f" \
+  -H "Content-Type: application/json" \
+  -d '{
   "amount": "100.50",
   "currency": "RUB",
   "description": "Оплата заказа 42",
@@ -62,7 +66,8 @@ curl -X POST http://localhost:8000/api/v1/payments   -H "X-API-Key: local-dev-ke
 ### Получение платежа
 
 ```bash
-curl http://localhost:8000/api/v1/payments/0192f3a4-0000-7000-8000-000000000001   -H "X-API-Key: local-dev-key"
+curl http://localhost:8000/api/v1/payments/0192f3a4-0000-7000-8000-000000000001 \
+  -H "X-API-Key: local-dev-key"
 ```
 
 ```json
