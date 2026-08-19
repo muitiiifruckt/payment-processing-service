@@ -204,24 +204,26 @@ async def test_event_about_an_unknown_payment_is_permanent(
         await run(session_factory, uuid4(), gateway=AlwaysSucceeds(), clock=FrozenClock())
 
 
-async def test_database_is_not_held_while_the_gateway_is_called(
+async def test_the_claim_is_visible_from_outside_while_the_gateway_is_called(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    seen: list[datetime | None] = []
+    """Захват зафиксирован и виден другой сессии — значит транзакция закрыта
+    до обращения к шлюзу, а не удерживается все 2–5 секунд. processed_at для
+    этого не годится: он заполняется после возврата шлюза в любом случае."""
+    seen: list[bool] = []
 
     class ObservingGateway:
         async def process(self, payment_id: UUID) -> bool:
-            # захват уже зафиксирован и виден снаружи — значит транзакция
-            # закрыта до обращения к шлюзу, а не удерживается на всё время
-            async with session_factory() as session:
-                other = await PaymentRepository(session).get(payment_id)
-            seen.append(other.processed_at if other else None)
-            assert other is not None
+            async with session_factory() as session, session.begin():
+                # чужой захват взять нельзя — значит наш уже зафиксирован
+                seen.append(
+                    await PaymentRepository(session).claim(payment_id, now=NOW, lease=CLAIM_LEASE)
+                )
             return True
 
     await run(session_factory, stored.payment_id, gateway=ObservingGateway(), clock=FrozenClock())
 
-    assert seen == [None]
+    assert seen == [False]
 
 
 async def test_declined_payment_is_treated_as_handled_and_not_retried(

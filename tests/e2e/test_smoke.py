@@ -91,12 +91,16 @@ async def test_a_payment_without_a_webhook_url_still_reaches_a_terminal_status(
 
 
 async def test_the_schema_was_created_automatically(client: httpx.AsyncClient) -> None:
-    """Окружение поднялось с нуля: если бы миграции не накатились,
-    /health не отдал бы ok по базе."""
+    """Окружение поднялось с нуля. Проба здесь не показатель — SELECT 1
+    проходит и на пустой базе; показатель тот, что платёж создаётся,
+    то есть таблицы существуют и версия схемы накачена."""
     response = await client.get("/health")
-
-    assert response.status_code == 200
     assert response.json()["database"] == "ok"
+
+    created = await create(client)
+
+    assert created["status"] == "pending"
+    assert compose("exec", "-T", "api", "alembic", "current").strip().endswith("(head)")
 
 
 async def test_a_payment_with_an_unreachable_webhook_keeps_its_terminal_status(
@@ -193,8 +197,20 @@ async def test_stopping_the_consumer_does_not_leave_a_payment_half_done(
         await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
     ).json()
 
-    # обработчик выключен: платёж либо не тронут, либо уже доигран — но не «в процессе»
-    assert payment["status"] in TERMINAL or payment["processed_at"] is None
+    # обработчик выключен, платёж его не дождался — он обязан остаться нетронутым
+    assert payment["status"] == "pending"
+    assert payment["processed_at"] is None
+
+    # и доиграть, когда обработчик вернётся: остановка не потеряла сообщение
+    compose("start", "consumer")
+    assert (await until(lambda: _settled(client, payment_id)))["status"] in TERMINAL
+
+
+async def _settled(client: httpx.AsyncClient, payment_id: str) -> dict[str, Any] | None:
+    payment = (
+        await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
+    ).json()
+    return payment if payment["status"] in TERMINAL else None
 
 
 async def test_the_consumer_never_touched_the_database_before_the_migrations() -> None:

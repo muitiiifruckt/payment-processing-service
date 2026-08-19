@@ -1,7 +1,10 @@
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: Ширина колонки payments.description
+DESCRIPTION_COLUMN = 512
 
 
 class Settings(BaseSettings):
@@ -15,7 +18,9 @@ class Settings(BaseSettings):
 
     prefetch_count: int = 10
 
-    description_max_length: int = 512
+    #: Верхняя граница зашита в колонку payments.description: настройка
+    #: сверх неё дала бы 500 на записи вместо 422 на валидации
+    description_max_length: int = Field(default=DESCRIPTION_COLUMN, le=DESCRIPTION_COLUMN, gt=0)
     metadata_max_bytes: int = 8 * 1024
 
     webhook_timeout_seconds: float = 5.0

@@ -59,28 +59,13 @@ jobs:
 
       - run: uv sync --frozen
 
-      # Ловит невалидный downgrade и разъезд моделей с миграциями.
-      # Шаг включится сам, когда появится alembic (слайс 2).
+      # Ловит невалидный downgrade и расхождение моделей с миграциями
       - name: migrations round-trip
         run: |
-          if [ ! -f alembic.ini ]; then
-            echo "миграций пока нет — слайс 2"
-            exit 0
-          fi
           uv run alembic upgrade head
           uv run alembic downgrade base
           uv run alembic upgrade head
           uv run alembic check
 
       - name: integration tests
-        run: |
-          set +e
-          uv run pytest -m integration
-          code=$?
-          set -e
-          # 5 — pytest не собрал ни одного теста: интеграционные появятся в слайсе 2
-          if [ $code -eq 5 ]; then
-            echo "интеграционных тестов пока нет"
-            exit 0
-          fi
-          exit $code
+        run: uv run pytest -m integration

@@ -20,3 +20,10 @@ def test_an_empty_forced_outcome_reads_as_absent() -> None:
     """compose подставляет пустую строку для незаданной переменной, и без
     этого сервис не поднимется вовсе."""
     assert Settings(api_key="k", gateway_force_outcome="").gateway_force_outcome is None
+
+
+def test_the_description_limit_cannot_exceed_the_column() -> None:
+    """Колонка payments.description — 512 символов. Настройка сверх этого
+    дала бы 500 на записи вместо 422 на валидации."""
+    with pytest.raises(ValidationError):
+        Settings(api_key="k", description_max_length=4096)
