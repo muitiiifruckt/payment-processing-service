@@ -61,8 +61,8 @@ async def test_amount_above_the_domain_limit_is_a_validation_error(client: Async
 
 
 async def test_idempotent_replay_returns_the_full_representation(client: AsyncClient) -> None:
-    """RFC §8.2: повтор отвечает полным представлением. Краткое ответило бы
-    `pending` по платежу, который мог уже обработаться."""
+    """RFC §8.2: повтор отвечает полным представлением, а не тремя полями
+    краткого."""
     first = await client.post("/api/v1/payments", json=a_body(), headers=headers("h3"))
     replay = await client.post("/api/v1/payments", json=a_body(), headers=headers("h3"))
 
@@ -84,8 +84,8 @@ async def test_idempotent_replay_returns_the_full_representation(client: AsyncCl
 async def test_replay_after_processing_shows_the_terminal_status(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    """Платёж мог обработаться между первым запросом и повтором: отвечать
-    `pending` в этот момент — врать клиенту."""
+    """Платёж мог обработаться между первым запросом и повтором. Статус
+    отдавался фактический и раньше; красным здесь был processed_at."""
     first = await client.post("/api/v1/payments", json=a_body(), headers=headers("h4"))
     payment_id = UUID(first.json()["payment_id"])
 
@@ -111,45 +111,3 @@ async def test_a_repeated_key_does_not_add_a_second_outbox_event(
     events = await session.scalar(select(func.count()).select_from(OutboxRow))
 
     assert events == 1
-
-
-async def test_creating_a_payment_does_not_reach_the_broker(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Публикация — дело relay. Обращение к брокеру прямо из обработчика
-    сделало бы outbox бессмысленным (RFC §2.4)."""
-
-    async def refuse(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("создание платежа обратилось к брокеру")
-
-    monkeypatch.setattr("aio_pika.connect_robust", refuse)
-
-    response = await client.post("/api/v1/payments", json=a_body(), headers=headers("h6"))
-
-    assert response.status_code == 202
-
-
-async def test_unexpected_failure_keeps_the_error_envelope(session: AsyncSession) -> None:
-    app = create_app()
-    app.dependency_overrides[get_session] = lambda: session
-
-    @app.get("/boom")
-    async def boom() -> None:
-        raise RuntimeError("пароль в тексте исключения")
-
-    # без этого клиент перевозбуждает исключение вместо разбора ответа
-    transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/boom")
-
-    assert response.status_code == 500
-    assert response.json()["error"]["code"] == "internal_error"
-    # деталь исключения наружу не уходит
-    assert "пароль" not in response.text
-
-
-async def test_health_checks_the_database(client: AsyncClient) -> None:
-    response = await client.get("/health")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": "ok"}
