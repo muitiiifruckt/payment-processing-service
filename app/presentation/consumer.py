@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import signal
 from typing import Any
 from uuid import UUID
 
@@ -11,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.create_payment import PAYMENT_CREATED
 from app.application.notify import WebhookSender
 from app.application.ports import Clock, PaymentGateway
-from app.application.process_payment import PermanentError, process_payment
+from app.application.process_payment import (
+    PaymentBusyError,
+    PermanentError,
+    process_payment,
+)
 from app.application.publish_outbox import relay_forever
 from app.infrastructure.broker import topology
 from app.infrastructure.broker.broker import (
@@ -24,7 +29,7 @@ from app.infrastructure.config import settings
 from app.infrastructure.db.session import dispose, session_factory
 from app.infrastructure.gateway import EmulatedGateway
 from app.infrastructure.webhook import HttpWebhookSender, make_client
-from app.presentation.failure_routing import PERMANENT, TRANSIENT, route_failure
+from app.presentation.failure_routing import BUSY, PERMANENT, TRANSIENT, route_failure
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +47,9 @@ def register_handlers(
         message: RabbitMessage,
         event_type: str = Context("message.headers.x-event-type", default=""),
         attempt: int = Context("message.headers.x-attempt", default=0),
+        busy: int = Context("message.headers.x-busy", default=0),
     ) -> None:
+        original = dict(message.headers)
         # тело разбирается своими руками: валидация фреймворком происходит
         # до этой функции, и негодное сообщение обошло бы классификацию
         body = bytes(message.body)
@@ -51,7 +58,7 @@ def register_handlers(
         except PermanentError as error:
             # тело пересылается как есть: разобрать его не вышло, но по нему
             # ещё можно понять, что пришло, — диагностика уезжает в заголовок
-            await _route(broker, body, attempt, error, PERMANENT, event_type)
+            await _route(broker, body, attempt, error, PERMANENT, event_type, busy, original)
             return
 
         try:
@@ -64,11 +71,13 @@ def register_handlers(
                 sender=sender,
             )
         except PermanentError as error:
-            await _route(broker, event, attempt, error, PERMANENT, event_type)
+            await _route(broker, event, attempt, error, PERMANENT, event_type, busy, original)
+        except PaymentBusyError as error:
+            await _route(broker, event, attempt, error, BUSY, event_type, busy, original)
         except Exception as error:
             # умолчание в пользу повтора: неучтённая ошибка не должна
             # стоить сообщения (RFC §6.3)
-            await _route(broker, event, attempt, error, TRANSIENT, event_type)
+            await _route(broker, event, attempt, error, TRANSIENT, event_type, busy, original)
 
 
 async def _route(
@@ -78,16 +87,37 @@ async def _route(
     error: Exception,
     kind: str,
     event_type: str,
+    busy: int,
+    original: dict[str, Any],
 ) -> None:
     """Отказ самой пересылки не глушится: исходное сообщение не подтверждается
     и уходит по страховочному dead-letter, а причина видна в логе."""
     try:
         await route_failure(
-            broker, event, attempt=attempt, error=error, kind=kind, event_type=event_type
+            broker,
+            event,
+            attempt=attempt,
+            error=error,
+            kind=kind,
+            event_type=event_type,
+            busy=busy,
+            original=original,
         )
     except Exception:
         log.exception("не удалось переслать сообщение по отказу %s", error)
         raise
+
+
+def _supervise(task: asyncio.Task[None]) -> None:
+    """RFC §5.2: молча умершая фоновая задача останавливает разгрузку outbox
+    незаметно. Отмена штатна, всё остальное — повод уронить процесс."""
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is None:
+        return
+    log.critical("задача relay умерла, процесс завершается", exc_info=error)
+    signal.raise_signal(signal.SIGTERM)
 
 
 def _parse(body: bytes) -> dict[str, Any]:
@@ -152,9 +182,9 @@ def build_app(
 
     @app.after_startup
     async def start_relay() -> None:
-        relay.append(
-            asyncio.create_task(relay_forever(sessions, RabbitEventPublisher(broker), clock))
-        )
+        task = asyncio.create_task(relay_forever(sessions, RabbitEventPublisher(broker), clock))
+        task.add_done_callback(_supervise)
+        relay.append(task)
 
     @app.on_shutdown
     async def stop_relay() -> None:

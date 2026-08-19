@@ -65,12 +65,18 @@ async def process_payment(
     else:
         payment.mark_failed(clock.now())
 
-    async with sessions() as session, session.begin():
-        if not await PaymentRepository(session).save_result(payment, claimed_at=now):
-            # пока мы ходили в шлюз, результат записал другой прогон.
-            # Исход детерминирован по payment_id, так что расхождения нет
-            log.info("результат по платежу %s уже записан", payment_id)
-            return
+    try:
+        async with sessions() as session, session.begin():
+            if not await PaymentRepository(session).save_result(payment, claimed_at=now):
+                # пока мы ходили в шлюз, результат записал другой прогон.
+                # Исход детерминирован по payment_id, так что расхождения нет
+                log.info("результат по платежу %s уже записан", payment_id)
+                return
+    except Exception as error:
+        # захват нужно снять и здесь: иначе платёж ждёт протухания метки,
+        # а повторы тем временем упираются в неё же
+        await _release_quietly(sessions, payment_id, claimed_at=now)
+        raise TransientError(f"запись исхода: {type(error).__name__}: {error}") from error
 
     await _notify(
         sessions,

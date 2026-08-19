@@ -79,7 +79,7 @@ async def with_hook(session_factory: async_sessionmaker[AsyncSession]) -> Paymen
 
 def make_broker_with_spies(
     sessions: async_sessionmaker[AsyncSession], gateway: object, sender: object | None = None
-) -> tuple[RabbitBroker, dict[str, list[bytes]]]:
+) -> tuple[RabbitBroker, dict[str, list[tuple[bytes, dict[str, Any]]]]]:
     """Подписчики на retry-очереди и DLQ: иначе не видно, куда ушёл отказ."""
     broker = RabbitBroker()
     register_handlers(
@@ -89,15 +89,16 @@ def make_broker_with_spies(
         sessions=sessions,
         sender=sender or SilentSender(),  # type: ignore[arg-type]
     )
-    seen: dict[str, list[bytes]] = {}
+    seen: dict[str, list[tuple[bytes, dict[str, Any]]]] = {}
 
     def spy_on(queue: Any, exchange: Any, name: str) -> None:
         seen[name] = []
 
         @broker.subscriber(queue, exchange)
         async def spy(message: RabbitMessage) -> None:
-            # сырое тело: в DLQ приезжает и то, что не разобралось
-            seen[name].append(bytes(message.body))
+            # сырое тело: в DLQ приезжает и то, что не разобралось.
+            # Заголовки — по ним видно счёт прогонов и класс отказа
+            seen[name].append((bytes(message.body), dict(message.headers)))
 
     for attempt in range(1, MAX_HANDLER_RUNS):
         spy_on(topology.retry_queue(attempt), topology.payments_exchange, f"retry-{attempt}")
@@ -261,13 +262,15 @@ async def test_a_busy_payment_does_not_burn_the_retry_budget(
     await deliver(broker, stored.payment_id, attempt=MAX_HANDLER_RUNS - 1)
 
     assert seen["dlq"] == []
-    assert len(seen["retry-1"]) == 1
+    assert [headers["x-attempt"] for _, headers in seen["retry-1"]] == [MAX_HANDLER_RUNS - 1]
 
 
-async def test_a_payment_busy_for_too_long_still_ends_up_in_the_dead_letter_queue(
+async def test_a_payment_busy_for_too_long_stops_waiting_and_spends_a_run(
     session_factory: async_sessionmaker[AsyncSession], stored: Payment
 ) -> None:
-    """Бесконечно ждать освобождения нельзя: у ожидания свой предел."""
+    """Бесконечно ждать освобождения нельзя: у ожидания свой предел. Дальше
+    занятость перестаёт быть бесплатной и считается обычным отказом —
+    платёж получает оставшиеся прогоны и в конце концов уедет в DLQ."""
     async with session_factory() as session, session.begin():
         await PaymentRepository(session).claim(
             stored.payment_id, now=NOW, lease=timedelta(seconds=10)
@@ -277,4 +280,5 @@ async def test_a_payment_busy_for_too_long_still_ends_up_in_the_dead_letter_queu
 
     await deliver(broker, stored.payment_id, attempt=0, busy=MAX_BUSY_WAITS)
 
-    assert len(seen["dlq"]) == 1
+    assert seen["dlq"] == []
+    assert [headers["x-attempt"] for _, headers in seen["retry-1"]] == [1]
