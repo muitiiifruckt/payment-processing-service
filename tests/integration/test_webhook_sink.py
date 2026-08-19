@@ -3,7 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.infrastructure.config import settings
 from app.main import create_app
-from app.presentation.api.sink import received
+from app.presentation.api.sink import attempts, received
 
 PAYLOAD = {"event_id": "e", "payment_id": "p", "status": "succeeded"}
 KEY = {"X-API-Key": settings.api_key}
@@ -13,6 +13,7 @@ KEY = {"X-API-Key": settings.api_key}
 def empty_sink() -> None:
     """Приёмник живёт в памяти модуля: без очистки тест зависит от соседей."""
     received.clear()
+    attempts.clear()
 
 
 async def client_for(monkeypatch: pytest.MonkeyPatch, enabled: bool) -> AsyncClient:
