@@ -156,3 +156,63 @@ async def test_a_repeatedly_failing_payment_does_not_stay_locked(
         assert await PaymentRepository(session).claim(
             stored.payment_id, now=NOW, lease=timedelta(seconds=10)
         )
+
+
+class Broken:
+    async def process(self, payment_id: UUID) -> bool:
+        # ошибка, которой нет ни в одном списке классификации
+        raise ValueError("что-то пошло не так")
+
+
+async def test_an_unclassified_exception_is_treated_as_temporary(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Умолчание в пользу повтора: неучтённая ошибка не должна стоить
+    сообщения (RFC §6.3)."""
+    broker, seen = make_broker_with_spies(session_factory, Broken())
+
+    await deliver(broker, stored.payment_id)
+
+    assert len(seen["retry-1"]) == 1
+    assert seen["dlq"] == []
+
+
+async def test_an_unparseable_body_goes_straight_to_the_dead_letter_queue(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Разбор тела происходит до обработчика, и такое сообщение обошло бы
+    механизм классификации целиком."""
+    broker, seen = make_broker_with_spies(session_factory, Unavailable())
+
+    async with TestRabbitBroker(broker) as test:
+        await test.publish(
+            bytes([0xFF]) + b" not json at all",
+            routing_key=topology.NEW_KEY,
+            exchange=topology.payments_exchange,
+            headers={"x-event-type": PAYMENT_CREATED, "x-attempt": 0},
+        )
+
+    assert len(seen["dlq"]) == 1
+    assert seen["retry-1"] == []
+
+
+async def test_a_failed_retry_publish_does_not_acknowledge_the_message(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Если переслать не удалось, исходное сообщение обязано остаться
+    неподтверждённым — иначе платёж теряется без следа."""
+    broker, _ = make_broker_with_spies(session_factory, Unavailable())
+
+    async def refuse(*args: Any, **kwargs: Any) -> None:
+        raise ConnectionError("брокер не принял публикацию")
+
+    with pytest.raises(ConnectionError):
+        async with TestRabbitBroker(broker) as test:
+            test.publish_ = refuse  # type: ignore[method-assign]
+            broker.publish = refuse  # type: ignore[method-assign]
+            await test.publish(
+                {"event_id": str(uuid4()), "payment_id": str(stored.payment_id)},
+                routing_key=topology.NEW_KEY,
+                exchange=topology.payments_exchange,
+                headers={"x-event-type": PAYMENT_CREATED, "x-attempt": 0},
+            )
