@@ -1,9 +1,17 @@
+import asyncio
 import socket
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from ipaddress import ip_address
 from urllib.parse import urlsplit
 
-Resolver = Callable[[str, int], list[tuple[str, int]]]
+Resolver = Callable[[str, int], Awaitable[list[tuple[str, int]]]]
+
+#: Имени нет и не будет — в отличие от «попробуйте позже»
+PERMANENT_RESOLVER_ERRORS = frozenset(
+    code
+    for code in (getattr(socket, name, None) for name in ("EAI_NONAME", "EAI_NODATA"))
+    if code is not None
+)
 
 
 class ForbiddenTargetError(Exception):
@@ -11,11 +19,18 @@ class ForbiddenTargetError(Exception):
     не появится от повтора."""
 
 
-def system_resolver(host: str, port: int) -> list[tuple[str, int]]:
-    return [(str(info[4][0]), port) for info in socket.getaddrinfo(host, port)]
+class TargetUnresolvedError(Exception):
+    """Имя не удалось разрешить сейчас. Отказ временный."""
 
 
-def ensure_allowed(
+async def system_resolver(host: str, port: int) -> list[tuple[str, int]]:
+    """Через loop: socket.getaddrinfo блокирующий, а на этом же цикле
+    живут relay и соединение с брокером."""
+    infos = await asyncio.get_running_loop().getaddrinfo(host, port)
+    return [(str(info[4][0]), port) for info in infos]
+
+
+async def ensure_allowed(
     url: str,
     *,
     resolve: Resolver = system_resolver,
@@ -24,19 +39,24 @@ def ensure_allowed(
     """Запрос уходит изнутри сети по адресу, который назвал клиент. Без
     проверки сервис работает прокси во внутренний периметр — от метаданных
     облака до собственной базы."""
-    host = urlsplit(url).hostname
+    split = urlsplit(url)
+    host = split.hostname
     if not host:
         raise ForbiddenTargetError(f"в адресе {url} нет хоста")
-    if host in set(allowed_hosts):
+    # список исключений снимает проверку с хоста целиком, а не только
+    # запрет приватных адресов: любой путь на нём становится разрешённым
+    if host.rstrip(".").lower() in {name.rstrip(".").lower() for name in allowed_hosts}:
         return
 
-    port = urlsplit(url).port or (443 if url.startswith("https://") else 80)
+    port = split.port or (443 if split.scheme == "https" else 80)
     try:
-        addresses = resolve(host, port)
+        addresses = await resolve(host, port)
+    except socket.gaierror as error:
+        if error.errno in PERMANENT_RESOLVER_ERRORS:
+            raise ForbiddenTargetError(f"хост {host} не существует: {error}") from error
+        raise TargetUnresolvedError(f"хост {host} сейчас не разрешается: {error}") from error
     except OSError as error:
-        # неразрешимое имя незачем и пытаться: заодно не даём отличить
-        # существующий внутренний хост от несуществующего по времени ответа
-        raise ForbiddenTargetError(f"хост {host} не разрешается: {error}") from error
+        raise TargetUnresolvedError(f"хост {host} сейчас не разрешается: {error}") from error
 
     for address, _ in addresses:
         if not _is_public(address):
@@ -44,15 +64,10 @@ def ensure_allowed(
 
 
 def _is_public(address: str) -> bool:
+    """is_global, а не перечисление диапазонов: оно накрывает и общее
+    адресное пространство 100.64.0.0/10, и служебные подсети, которые
+    поимённый список забывает."""
     try:
-        parsed = ip_address(address)
+        return ip_address(address).is_global
     except ValueError:
         return False
-    return not (
-        parsed.is_private
-        or parsed.is_loopback
-        or parsed.is_link_local
-        or parsed.is_multicast
-        or parsed.is_reserved
-        or parsed.is_unspecified
-    )

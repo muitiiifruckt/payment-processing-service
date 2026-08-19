@@ -111,8 +111,9 @@ async def test_a_payment_with_an_unreachable_webhook_keeps_its_terminal_status(
     payment = await until(settled)
     status = payment["status"]
 
-    # лестница повторов — 2 + 4 + 8 секунд, после неё сообщение в DLQ
-    await asyncio.sleep(20)
+    # имя не существует, поэтому отказ постоянный: сообщение уходит в DLQ
+    # сразу. Пауза — чтобы поймать чужую запись, если бы она случилась
+    await asyncio.sleep(5)
     again = (
         await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
     ).json()
