@@ -31,6 +31,7 @@ def test_payload_carries_the_agreed_fields() -> None:
 
     assert payload == {
         "event_id": str(EVENT_ID),
+        "event_type": "payment.processed",
         "payment_id": str(PAYMENT_ID),
         "status": "succeeded",
         "amount": "100.50",
