@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from faststream.rabbit import RabbitBroker
+from faststream.rabbit import RabbitBroker, RabbitMessage
 from faststream.rabbit.testing import TestRabbitBroker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -32,6 +32,11 @@ class FrozenClock:
         self._now += timedelta(seconds=seconds)
 
 
+class AlwaysSucceeds:
+    async def process(self, payment_id: UUID) -> bool:
+        return True
+
+
 class Unavailable:
     async def process(self, payment_id: UUID) -> bool:
         raise GatewayUnavailableError("шлюз не отвечает")
@@ -56,9 +61,25 @@ async def stored(session_factory: async_sessionmaker[AsyncSession]) -> Payment:
     return payment
 
 
+@pytest.fixture
+async def with_hook(session_factory: async_sessionmaker[AsyncSession]) -> Payment:
+    payment_id = uuid4()
+    payment = Payment(
+        payment_id=payment_id,
+        amount=Money(Decimal("100.00"), Currency.RUB),
+        created_at=NOW,
+        idempotency_key=str(payment_id),
+        request_hash="0" * 64,
+        webhook_url="https://receiver.test/hook",
+    )
+    async with session_factory() as session, session.begin():
+        await PaymentRepository(session).add_if_absent(payment)
+    return payment
+
+
 def make_broker_with_spies(
-    sessions: async_sessionmaker[AsyncSession], gateway: object
-) -> tuple[RabbitBroker, dict[str, list[dict[str, Any]]]]:
+    sessions: async_sessionmaker[AsyncSession], gateway: object, sender: object | None = None
+) -> tuple[RabbitBroker, dict[str, list[bytes]]]:
     """Подписчики на retry-очереди и DLQ: иначе не видно, куда ушёл отказ."""
     broker = RabbitBroker()
     register_handlers(
@@ -66,16 +87,17 @@ def make_broker_with_spies(
         gateway=gateway,  # type: ignore[arg-type]
         clock=FrozenClock(),
         sessions=sessions,
-        sender=SilentSender(),
+        sender=sender or SilentSender(),  # type: ignore[arg-type]
     )
-    seen: dict[str, list[dict[str, Any]]] = {}
+    seen: dict[str, list[bytes]] = {}
 
     def spy_on(queue: Any, exchange: Any, name: str) -> None:
         seen[name] = []
 
         @broker.subscriber(queue, exchange)
-        async def spy(event: dict[str, Any]) -> None:
-            seen[name].append(event)
+        async def spy(message: RabbitMessage) -> None:
+            # сырое тело: в DLQ приезжает и то, что не разобралось
+            seen[name].append(bytes(message.body))
 
     for attempt in range(1, MAX_HANDLER_RUNS):
         spy_on(topology.retry_queue(attempt), topology.payments_exchange, f"retry-{attempt}")
@@ -158,20 +180,23 @@ async def test_a_repeatedly_failing_payment_does_not_stay_locked(
         )
 
 
-class Broken:
-    async def process(self, payment_id: UUID) -> bool:
-        # ошибка, которой нет ни в одном списке классификации
+class BrokenSender:
+    """Ошибка, которой нет ни в одном списке классификации, и которая
+    поднимается вне зоны ответственности process_payment."""
+
+    async def send(self, url: str, payload: dict[str, Any]) -> None:
         raise ValueError("что-то пошло не так")
 
 
 async def test_an_unclassified_exception_is_treated_as_temporary(
-    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+    session_factory: async_sessionmaker[AsyncSession], with_hook: Payment
 ) -> None:
     """Умолчание в пользу повтора: неучтённая ошибка не должна стоить
-    сообщения (RFC §6.3)."""
-    broker, seen = make_broker_with_spies(session_factory, Broken())
+    сообщения (RFC §6.3). Исключение поднимается за пределами классификатора
+    process_payment — иначе проверялся бы не тот механизм."""
+    broker, seen = make_broker_with_spies(session_factory, AlwaysSucceeds(), sender=BrokenSender())
 
-    await deliver(broker, stored.payment_id)
+    await deliver(broker, with_hook.payment_id)
 
     assert len(seen["retry-1"]) == 1
     assert seen["dlq"] == []
@@ -197,22 +222,19 @@ async def test_an_unparseable_body_goes_straight_to_the_dead_letter_queue(
 
 
 async def test_a_failed_retry_publish_does_not_acknowledge_the_message(
-    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+    session_factory: async_sessionmaker[AsyncSession],
+    stored: Payment,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Если переслать не удалось, исходное сообщение обязано остаться
-    неподтверждённым — иначе платёж теряется без следа."""
+    """Если переслать не удалось, исключение обязано выйти из обработчика:
+    иначе сообщение подтверждается, и платёж теряется без следа."""
     broker, _ = make_broker_with_spies(session_factory, Unavailable())
 
     async def refuse(*args: Any, **kwargs: Any) -> None:
         raise ConnectionError("брокер не принял публикацию")
 
+    # подменяется только пересылка отказа, но не доставка исходного сообщения
+    monkeypatch.setattr("app.presentation.consumer.route_failure", refuse)
+
     with pytest.raises(ConnectionError):
-        async with TestRabbitBroker(broker) as test:
-            test.publish_ = refuse  # type: ignore[method-assign]
-            broker.publish = refuse  # type: ignore[method-assign]
-            await test.publish(
-                {"event_id": str(uuid4()), "payment_id": str(stored.payment_id)},
-                routing_key=topology.NEW_KEY,
-                exchange=topology.payments_exchange,
-                headers={"x-event-type": PAYMENT_CREATED, "x-attempt": 0},
-            )
+        await deliver(broker, stored.payment_id)

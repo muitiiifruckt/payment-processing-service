@@ -16,7 +16,7 @@ MAX_REASON = 512
 
 async def route_failure(
     broker: RabbitBroker,
-    event: dict[str, Any],
+    event: dict[str, Any] | bytes,
     *,
     attempt: int,
     error: Exception,
@@ -48,7 +48,7 @@ async def route_failure(
 
 async def _dead_letter(
     broker: RabbitBroker,
-    event: dict[str, Any],
+    event: dict[str, Any] | bytes,
     *,
     attempt: int,
     error: Exception,
@@ -66,15 +66,17 @@ async def _dead_letter(
     )
 
 
-def _message_id(event: dict[str, Any]) -> str | None:
+def _message_id(event: dict[str, Any] | bytes) -> str | None:
     """Публикующая сторона кладёт сюда event_id. Потеряв его при пересылке,
     теряем и связь сообщения с событием после первого же повтора."""
+    if isinstance(event, bytes):
+        return None
     raw = event.get("event_id")
     return str(raw) if isinstance(raw, str) else None
 
 
 def _headers(
-    event: dict[str, Any], *, attempt: int, error: Exception, kind: str, event_type: str
+    event: dict[str, Any] | bytes, *, attempt: int, error: Exception, kind: str, event_type: str
 ) -> dict[str, Any]:
     # тип события едет в заголовке, а не в теле: пересылая сообщение,
     # заголовок надо перенести своими руками
@@ -83,5 +85,5 @@ def _headers(
         "x-attempt": attempt,
         "x-failure-class": kind,
         "x-failure-reason": f"{type(error).__name__}: {error}"[:MAX_REASON],
-        "x-payment-id": str(event.get("payment_id") or ""),
+        "x-payment-id": "" if isinstance(event, bytes) else str(event.get("payment_id") or ""),
     }

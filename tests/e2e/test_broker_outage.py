@@ -1,23 +1,15 @@
 import asyncio
-import os
-import subprocess
 import uuid
-from typing import Any
+from collections.abc import Iterator
 
 import httpx
 import pytest
 
-BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost:8000")
-API_KEY = os.getenv("E2E_API_KEY", "local-dev-key")
-TERMINAL = {"succeeded", "failed"}
-
-
-def compose(*args: str) -> None:
-    subprocess.run(["docker", "compose", *args], check=True, capture_output=True)
+from tests.e2e.conftest import API_KEY, BASE_URL, TERMINAL, compose
 
 
 @pytest.fixture
-async def stopped_broker() -> Any:
+def stopped_broker() -> Iterator[None]:
     compose("stop", "rabbitmq")
     try:
         yield
