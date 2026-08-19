@@ -111,3 +111,21 @@ async def test_a_repeated_key_does_not_add_a_second_outbox_event(
     events = await session.scalar(select(func.count()).select_from(OutboxRow))
 
     assert events == 1
+
+
+@pytest.mark.parametrize(
+    "webhook_url",
+    ["http://example.com:99999/hook", "http://example.com:abc/hook", "http://[oops"],
+)
+async def test_a_malformed_webhook_url_is_rejected_at_creation(
+    client: AsyncClient, webhook_url: str
+) -> None:
+    """Иначе платёж создаётся, обрабатывается и уезжает в DLQ на разборе
+    адреса — на входе это стоит одной проверки."""
+    response = await client.post(
+        "/api/v1/payments",
+        json=a_body(webhook_url=webhook_url),
+        headers=headers(f"malformed-{webhook_url}"),
+    )
+
+    assert response.status_code == 422
