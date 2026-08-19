@@ -33,7 +33,7 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL:?нужен в .env}
       API_KEY: ${API_KEY:?нужен в .env}
       ENABLE_WEBHOOK_SINK: ${ENABLE_WEBHOOK_SINK:-false}
-      WEBHOOK_ALLOWED_HOSTS: ${WEBHOOK_ALLOWED_HOSTS:-}
+      WEBHOOK_ALLOWED_HOSTS: ${WEBHOOK_ALLOWED_HOSTS:-api}
       GATEWAY_FORCE_OUTCOME: ${GATEWAY_FORCE_OUTCOME:-}
     ports:
       - "8000:8000"
@@ -62,7 +62,7 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL:?нужен в .env}
       API_KEY: ${API_KEY:?нужен в .env}
       ENABLE_WEBHOOK_SINK: ${ENABLE_WEBHOOK_SINK:-false}
-      WEBHOOK_ALLOWED_HOSTS: ${WEBHOOK_ALLOWED_HOSTS:-}
+      WEBHOOK_ALLOWED_HOSTS: ${WEBHOOK_ALLOWED_HOSTS:-api}
       GATEWAY_FORCE_OUTCOME: ${GATEWAY_FORCE_OUTCOME:-}
     depends_on:
       postgres:
