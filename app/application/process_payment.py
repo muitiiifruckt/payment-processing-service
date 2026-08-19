@@ -130,8 +130,9 @@ async def _notify(
         # сообщение уходит в повтор и добьёт webhook на следующем прогоне
         raise TransientError(str(error)) from error
     if not delivered:
-        # получатель отверг тело: повторять нечего, платёж обработан
-        log.warning("получатель отверг webhook по платежу %s", payment.payment_id)
-        return
+        # повторять нечего, но и подтвердить молча нельзя: платёж остался
+        # неуведомлённым, и это должно быть видно. Постоянный отказ —
+        # сообщение уходит в DLQ разом, минуя повторы
+        raise PermanentError(f"получатель отверг webhook по платежу {payment.payment_id}")
     async with sessions() as session, session.begin():
         await PaymentRepository(session).mark_webhook_delivered(payment.payment_id, now=clock.now())

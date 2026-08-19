@@ -97,8 +97,8 @@ async def test_the_schema_was_created_automatically(client: httpx.AsyncClient) -
 async def test_a_payment_with_an_unreachable_webhook_keeps_its_terminal_status(
     client: httpx.AsyncClient,
 ) -> None:
-    """Недостижимый получатель исчерпывает повторы и уводит сообщение в DLQ,
-    но исход платежа уже записан и остаётся неизменным."""
+    """Недостижимый получатель уводит сообщение в DLQ, но исход платежа
+    уже записан и остаётся неизменным."""
     created = await create(client, webhook_url="http://nowhere.invalid:9/hook")
     payment_id = created["payment_id"]
 
