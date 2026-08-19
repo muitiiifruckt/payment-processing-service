@@ -113,3 +113,14 @@ async def test_a_stalled_body_after_a_successful_answer_is_still_a_delivery() ->
     with respx.mock:
         respx.post(URL).mock(return_value=httpx.Response(200, stream=BreakingStream()))
         await HttpWebhookSender().send(URL, PAYLOAD)
+
+
+async def test_an_address_inside_the_perimeter_is_never_requested() -> None:
+    """Запрет постоянный: повторять запрещённый адрес незачем, и уж точно
+    не следует к нему обращаться, чтобы это выяснить."""
+    with respx.mock:
+        route = respx.post("http://127.0.0.1:5432/hook").mock(return_value=httpx.Response(200))
+        with pytest.raises(WebhookRejectedError):
+            await HttpWebhookSender().send("http://127.0.0.1:5432/hook", PAYLOAD)
+
+    assert not route.called
