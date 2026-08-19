@@ -16,6 +16,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.infrastructure.config import DESCRIPTION_COLUMN
+
 
 class Base(DeclarativeBase):
     pass
@@ -48,7 +50,7 @@ class PaymentRow(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 4))
     currency: Mapped[str] = mapped_column(String(3))
 
-    description: Mapped[str | None] = mapped_column(String(512))
+    description: Mapped[str | None] = mapped_column(String(DESCRIPTION_COLUMN))
     # metadata занято DeclarativeBase, поэтому переименован только атрибут
     payment_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
