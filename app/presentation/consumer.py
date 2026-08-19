@@ -49,7 +49,9 @@ def register_handlers(
         try:
             event = _parse(body)
         except PermanentError as error:
-            await _route(broker, {"body": repr(body[:256])}, attempt, error, PERMANENT, event_type)
+            # тело пересылается как есть: разобрать его не вышло, но по нему
+            # ещё можно понять, что пришло, — диагностика уезжает в заголовок
+            await _route(broker, body, attempt, error, PERMANENT, event_type)
             return
 
         try:
@@ -71,7 +73,7 @@ def register_handlers(
 
 async def _route(
     broker: RabbitBroker,
-    event: dict[str, Any],
+    event: dict[str, Any] | bytes,
     attempt: int,
     error: Exception,
     kind: str,

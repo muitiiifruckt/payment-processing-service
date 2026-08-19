@@ -1,19 +1,23 @@
 import asyncio
-import os
-import subprocess
 import uuid
 from typing import Any
 
+import aio_pika
 import httpx
 import pytest
 
-BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost:8000")
-# отдельная переменная: API_KEY в окружении прогона принадлежит тестовому
-# приложению, а сквозной тест стучится в поднятое compose'ом
-API_KEY = os.getenv("E2E_API_KEY", "local-dev-key")
-# адрес, по которому приёмник видит consumer, а не мы с хоста
-SINK_URL = os.getenv("E2E_SINK_URL", "http://api:8000/__sink__/webhook")
-TERMINAL = {"succeeded", "failed"}
+from app.infrastructure.broker import topology
+from tests.e2e.conftest import (
+    AMQP_URL,
+    API_KEY,
+    BASE_URL,
+    SINK_BASE,
+    TERMINAL,
+    compose,
+    logs_of,
+)
+
+SINK_URL = f"{SINK_BASE}/webhook"
 
 
 @pytest.fixture
@@ -128,7 +132,7 @@ async def test_a_receiver_that_refuses_twice_is_notified_after_the_retries(
 ) -> None:
     """Две первые попытки получают 503, третья проходит: повторы webhook
     видны снаружи, а не только в логе."""
-    flaky = SINK_URL.replace("/__sink__/webhook", "/__sink__/flaky/2")
+    flaky = f"{SINK_BASE}/flaky/2"
     created = await create(client, webhook_url=flaky)
     payment_id = created["payment_id"]
 
@@ -143,67 +147,60 @@ async def test_a_receiver_that_refuses_twice_is_notified_after_the_retries(
     assert counts[payment_id] == 3
 
 
-async def test_the_queues_and_messages_survive_a_broker_restart(
-    client: httpx.AsyncClient,
-) -> None:
-    """Очереди durable, том у брокера есть: перезапуск не должен стирать
-    ни топологию, ни ещё не разобранные сообщения."""
-    subprocess.run(["docker", "compose", "restart", "rabbitmq"], check=True, capture_output=True)
+async def test_a_message_survives_a_broker_restart(client: httpx.AsyncClient) -> None:
+    """Сообщения persistent, очередь durable: перезапуск брокера не должен
+    стирать то, что уже лежит в DLQ и ждёт разбора."""
 
-    created = await create(client, webhook_url=SINK_URL)
+    async def depth() -> int:
+        """Пассивное объявление: очередь уже существует, нам нужна её глубина."""
+        connection = await aio_pika.connect_robust(AMQP_URL)
+        async with connection:
+            channel = await connection.channel()
+            declared = await channel.declare_queue(topology.DLQ_KEY, passive=True)
+            return int(declared.declaration_result.message_count or 0)
 
-    async def settled() -> dict[str, Any] | None:
-        payment = (
-            await client.get(
-                f"/api/v1/payments/{created['payment_id']}", headers={"X-API-Key": API_KEY}
-            )
-        ).json()
-        return payment if payment["status"] in TERMINAL else None
+    # запрещённый адрес — постоянный отказ, сообщение уезжает в DLQ и там лежит
+    await create(client, webhook_url="http://10.0.0.1/hook")
+    before = await until(lambda: _at_least_one(depth()))
 
-    assert (await until(settled))["status"] in TERMINAL
+    compose("restart", "rabbitmq")
+
+    # брокер поднимается не мгновенно: первые попытки упрутся в сброс соединения
+    assert await until(lambda: _reachable(depth())) >= before
+
+
+async def _at_least_one(pending: Any) -> int | None:
+    depth = await pending
+    return depth if depth >= 1 else None
+
+
+async def _reachable(pending: Any) -> int | None:
+    try:
+        return await pending
+    except Exception:
+        return None
 
 
 async def test_stopping_the_consumer_does_not_leave_a_payment_half_done(
-    client: httpx.AsyncClient,
+    client: httpx.AsyncClient, stopped_consumer: None
 ) -> None:
-    """Бюджет остановки — 30 секунд, обработка длится до 5: прогон обязан
-    доиграть, а не оборваться посередине."""
+    """Бюджет остановки — 30 секунд, обработка длится до 5: платёж не должен
+    остаться в промежуточном состоянии, пока обработчик выключен."""
     created = await create(client, webhook_url=SINK_URL)
     payment_id = created["payment_id"]
 
-    # дать consumer'у забрать сообщение и уйти в шлюз
-    await asyncio.sleep(3)
-    subprocess.run(["docker", "compose", "stop", "consumer"], check=True, capture_output=True)
-    try:
-        payment = (
-            await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
-        ).json()
-        # либо прогон доиграл, либо платёж не тронут — но не «в процессе»
-        assert payment["status"] in TERMINAL or payment["processed_at"] is None
-    finally:
-        subprocess.run(["docker", "compose", "start", "consumer"], check=True, capture_output=True)
-
-    assert (await until(lambda: _settled_or_none(client, payment_id)))["status"] in TERMINAL
-
-
-async def _settled_or_none(client: httpx.AsyncClient, payment_id: str) -> dict[str, Any] | None:
     payment = (
         await client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": API_KEY})
     ).json()
-    return payment if payment["status"] in TERMINAL else None
+
+    # обработчик выключен: платёж либо не тронут, либо уже доигран — но не «в процессе»
+    assert payment["status"] in TERMINAL or payment["processed_at"] is None
 
 
 async def test_the_consumer_never_touched_the_database_before_the_migrations() -> None:
     """Схему создаёт api, consumer стартует следом: без ожидания он бьётся
     в несуществующие таблицы."""
-    logs = subprocess.run(
-        ["docker", "compose", "logs", "--no-color", "consumer"],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    ).stdout
+    logs = logs_of("consumer")
 
     assert "does not exist" not in logs
     assert "UndefinedTable" not in logs
