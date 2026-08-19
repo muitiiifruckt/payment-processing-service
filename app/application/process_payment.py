@@ -26,6 +26,12 @@ class PermanentError(Exception):
     """Повторять бессмысленно — сообщение в DLQ."""
 
 
+class PaymentBusyError(TransientError):
+    """Платёж держит другой обработчик. Это не отказ обработки, а штатная
+    развязка дубля: списывать за неё прогон значит уводить в DLQ платёж,
+    с которым всё в порядке."""
+
+
 async def process_payment(
     sessions: async_sessionmaker[AsyncSession],
     payment_id: UUID,
@@ -89,7 +95,7 @@ async def _take(
         if payment.status is PaymentStatus.PENDING and not await repository.claim(
             payment_id, now=now, lease=CLAIM_LEASE
         ):
-            raise TransientError(f"платёж {payment_id} занят другим обработчиком")
+            raise PaymentBusyError(f"платёж {payment_id} занят другим обработчиком")
         return payment
 
 
