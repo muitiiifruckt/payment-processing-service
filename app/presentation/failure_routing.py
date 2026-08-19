@@ -30,7 +30,7 @@ async def route_failure(
     принимает вызывающий: здесь только маршрутизация."""
     log.warning("отказ обработки, прогон %d, класс %s: %s", attempt, kind, error)
 
-    if kind == BUSY and busy + 1 < MAX_BUSY_WAITS:
+    if kind == BUSY and busy < MAX_BUSY_WAITS:
         # ждём освобождения, не списывая прогон: чужой захват — не отказ
         # обработки, и платёж, с которым всё в порядке, не должен из-за
         # него исчерпать бюджет и уехать в DLQ
@@ -47,6 +47,8 @@ async def route_failure(
         )
         return
 
+    # счётчик ожиданий обнуляется: он про одну схватку за платёж,
+    # а не про всю жизнь сообщения
     next_attempt = attempt + 1
     if kind == PERMANENT or next_attempt >= MAX_HANDLER_RUNS:
         await _dead_letter(
@@ -56,7 +58,7 @@ async def route_failure(
             error=error,
             kind=kind,
             event_type=event_type,
-            busy=busy,
+            busy=0,
             original=original,
         )
         return
@@ -66,7 +68,7 @@ async def route_failure(
         event,
         routing_key=topology.retry_key(next_attempt),
         attempt=next_attempt,
-        busy=busy,
+        busy=0,
         error=error,
         kind=kind,
         event_type=event_type,

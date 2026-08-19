@@ -95,6 +95,7 @@ async def test_the_schema_was_created_automatically(client: httpx.AsyncClient) -
     проходит и на пустой базе; показатель тот, что платёж создаётся,
     то есть таблицы существуют и версия схемы накачена."""
     response = await client.get("/health")
+    assert response.status_code == 200
     assert response.json()["database"] == "ok"
 
     created = await create(client)
