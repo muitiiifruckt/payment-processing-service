@@ -9,7 +9,7 @@ from faststream.rabbit.testing import TestRabbitBroker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.create_payment import PAYMENT_CREATED
-from app.application.policy import MAX_HANDLER_RUNS
+from app.application.policy import MAX_BUSY_WAITS, MAX_HANDLER_RUNS
 from app.application.ports import GatewayUnavailableError
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
@@ -106,14 +106,19 @@ def make_broker_with_spies(
 
 
 async def deliver(
-    broker: RabbitBroker, payment_id: UUID, *, attempt: int = 0, event_type: str = PAYMENT_CREATED
+    broker: RabbitBroker,
+    payment_id: UUID,
+    *,
+    attempt: int = 0,
+    busy: int = 0,
+    event_type: str = PAYMENT_CREATED,
 ) -> None:
     async with TestRabbitBroker(broker) as test:
         await test.publish(
             {"event_id": str(uuid4()), "payment_id": str(payment_id)},
             routing_key=topology.NEW_KEY,
             exchange=topology.payments_exchange,
-            headers={"x-event-type": event_type, "x-attempt": attempt},
+            headers={"x-event-type": event_type, "x-attempt": attempt, "x-busy": busy},
         )
 
 
@@ -238,3 +243,38 @@ async def test_a_failed_retry_publish_does_not_acknowledge_the_message(
 
     with pytest.raises(ConnectionError):
         await deliver(broker, stored.payment_id)
+
+
+async def test_a_busy_payment_does_not_burn_the_retry_budget(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Обработчик умер с захватом, сообщение вернулось с уже потраченными
+    прогонами. Занятость — не отказ обработки: списывать за неё прогоны
+    значит уводить живой платёж в DLQ и оставлять его pending навсегда."""
+    async with session_factory() as session, session.begin():
+        await PaymentRepository(session).claim(
+            stored.payment_id, now=NOW, lease=timedelta(seconds=10)
+        )
+
+    broker, seen = make_broker_with_spies(session_factory, AlwaysSucceeds())
+
+    await deliver(broker, stored.payment_id, attempt=MAX_HANDLER_RUNS - 1)
+
+    assert seen["dlq"] == []
+    assert len(seen["retry-1"]) == 1
+
+
+async def test_a_payment_busy_for_too_long_still_ends_up_in_the_dead_letter_queue(
+    session_factory: async_sessionmaker[AsyncSession], stored: Payment
+) -> None:
+    """Бесконечно ждать освобождения нельзя: у ожидания свой предел."""
+    async with session_factory() as session, session.begin():
+        await PaymentRepository(session).claim(
+            stored.payment_id, now=NOW, lease=timedelta(seconds=10)
+        )
+
+    broker, seen = make_broker_with_spies(session_factory, AlwaysSucceeds())
+
+    await deliver(broker, stored.payment_id, attempt=0, busy=MAX_BUSY_WAITS)
+
+    assert len(seen["dlq"]) == 1

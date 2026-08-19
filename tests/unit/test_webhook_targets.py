@@ -90,3 +90,18 @@ async def test_the_shared_address_space_is_refused() -> None:
     """100.64.0.0/10 не is_private, но это внутренние сети узлов и CGNAT."""
     with pytest.raises(ForbiddenTargetError):
         await ensure_allowed("https://node.example/hook", resolve=resolver([("100.64.0.1", 443)]))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com:99999/hook",
+        "http://example.com:abc/hook",
+        "http://[oops",
+    ],
+)
+async def test_a_malformed_address_is_refused_for_good(url: str) -> None:
+    """Разбор адреса не должен ронять необработанное исключение: иначе
+    отказ считается временным и сжигает весь бюджет повторов."""
+    with pytest.raises(ForbiddenTargetError):
+        await ensure_allowed(url, resolve=resolver(PUBLIC))
