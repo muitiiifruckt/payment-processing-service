@@ -6,8 +6,12 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.notify import WebhookUnavailableError
-from app.application.process_payment import TransientError, process_payment
+from app.application.notify import WebhookRejectedError, WebhookUnavailableError
+from app.application.process_payment import (
+    PermanentError,
+    TransientError,
+    process_payment,
+)
 from app.domain.money import Currency, Money
 from app.domain.payment import Payment
 from app.domain.status import PaymentStatus
@@ -170,3 +174,19 @@ async def test_database_is_not_held_while_the_receiver_is_called(
     )
 
     assert seen == [PaymentStatus.SUCCEEDED]
+
+
+async def test_a_rejected_webhook_sends_the_message_to_the_dead_letter_queue(
+    session_factory: async_sessionmaker[AsyncSession], with_hook: Payment
+) -> None:
+    """Отвергнутый получателем webhook повторять незачем, но и молча
+    подтверждать нельзя: платёж остаётся неуведомлённым, и это должно быть
+    видно. Постоянный отказ уводит сообщение в DLQ разом, минуя повторы."""
+    sender = RecordingSender(WebhookRejectedError("400"))
+
+    with pytest.raises(PermanentError):
+        await run(session_factory, with_hook.payment_id, sender)
+
+    after = await reload(session_factory, with_hook.payment_id)
+    assert after.status is PaymentStatus.SUCCEEDED
+    assert after.webhook_delivered_at is None
