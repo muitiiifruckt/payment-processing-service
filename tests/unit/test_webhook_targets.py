@@ -1,4 +1,5 @@
 import pytest
+
 from app.infrastructure.webhook_targets import ForbiddenTargetError, ensure_allowed
 
 PUBLIC = [("93.184.216.34", 443)]
